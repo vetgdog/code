@@ -1,0 +1,101 @@
+import { createRouter, createWebHistory } from 'vue-router';
+import Dashboard from '../pages/Dashboard.vue';
+import Orders from '../pages/Orders.vue';
+import Production from '../pages/Production.vue';
+import Inventory from '../pages/Inventory.vue';
+import Procurement from '../pages/Procurement.vue';
+import Quality from '../pages/Quality.vue';
+import Customer from '../pages/Customer.vue';
+import Login from '../pages/Login.vue';
+import Register from '../pages/Register.vue';
+import { canAccessRouteName, getDefaultRouteNameByRole, normalizeRole } from '../constants/access.js';
+
+const routes = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: Login,
+    meta: { public: true, title: '账号登录', subtitle: 'Sign in to continue' }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: Register,
+    meta: { public: true, title: '账号注册', subtitle: 'Create your account' }
+  },
+  {
+    path: '/',
+    name: 'Dashboard',
+    component: Dashboard,
+    meta: { title: '总经理看板', subtitle: 'Executive overview' }
+  },
+  {
+    path: '/dashboard',
+    redirect: '/'
+  },
+  {
+    path: '/orders',
+    name: 'Orders',
+    component: Orders,
+    meta: { title: '订单管理', subtitle: 'Sales orders and plans' }
+  },
+  {
+    path: '/production',
+    name: 'Production',
+    component: Production,
+    meta: { title: '生产任务', subtitle: 'Tasks and status updates' }
+  },
+  {
+    path: '/inventory',
+    name: 'Inventory',
+    component: Inventory,
+    meta: { title: '库存管理', subtitle: 'Stock in and out' }
+  },
+  {
+    path: '/procurement',
+    name: 'Procurement',
+    component: Procurement,
+    meta: { title: '采购管理', subtitle: 'Requests and orders' }
+  },
+  {
+    path: '/quality',
+    name: 'Quality',
+    component: Quality,
+    meta: { title: '质量追溯', subtitle: 'Batch records' }
+  },
+  {
+    path: '/customer',
+    name: 'Customer',
+    component: Customer,
+    meta: { title: '客户门户', subtitle: 'Customer order lookup' }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/'
+  }
+];
+
+const router = createRouter({
+  history: createWebHistory(),
+  routes
+});
+
+router.beforeEach((to) => {
+  const token = localStorage.getItem('auth_token');
+  const role = normalizeRole(localStorage.getItem('auth_role'));
+  const hasToken = Boolean(token && token !== 'undefined' && token !== 'null');
+
+  if (!to.meta.public && !hasToken) {
+    return { name: 'Login' };
+  }
+  if ((to.name === 'Login' || to.name === 'Register') && hasToken) {
+    return { name: getDefaultRouteNameByRole(role) };
+  }
+  if (!to.meta.public && to.name && !canAccessRouteName(role, to.name)) {
+    return { name: getDefaultRouteNameByRole(role) };
+  }
+  return true;
+});
+
+export default router;
+

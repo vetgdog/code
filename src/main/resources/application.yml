@@ -1,0 +1,30 @@
+server:
+  port: 8085
+
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/code?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
+    username: root
+    password: 1234
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+  sql:
+    init:
+      mode: never
+  jackson:
+    serialization:
+      fail-on-empty-beans: false
+
+logging:
+  level:
+    org.hibernate.SQL: DEBUG
+
+jwt:
+  secret: changeit_replace_in_production_with_secure_value_123456
+  expiration-ms: 3600000
