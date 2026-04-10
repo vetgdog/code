@@ -15,12 +15,12 @@
 
       <section class="p-8 md:p-10">
         <h1 class="text-2xl font-bold text-slate-900">账号登录</h1>
-        <p class="text-sm text-slate-500 mt-1">请输入用户名和密码，系统将自动识别角色权限。</p>
+        <p class="text-sm text-slate-500 mt-1">请输入邮箱和密码，系统将自动识别角色权限。</p>
 
         <form class="mt-6 space-y-4" @submit.prevent="handleLogin">
           <div>
-            <label class="text-xs font-semibold uppercase tracking-widest text-slate-500">用户名</label>
-            <input v-model="loginForm.username" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required />
+            <label class="text-xs font-semibold uppercase tracking-widest text-slate-500">邮箱</label>
+            <input v-model="loginForm.email" type="email" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required />
           </div>
           <div>
             <label class="text-xs font-semibold uppercase tracking-widest text-slate-500">密码</label>
@@ -49,7 +49,7 @@ const router = useRouter();
 const auth = useAuthStore();
 
 const loginForm = reactive({
-  username: '',
+  email: '',
   password: ''
 });
 
@@ -59,10 +59,10 @@ const handleLogin = async () => {
   loginError.value = '';
 
   try {
-    await auth.login({ username: loginForm.username, password: loginForm.password });
+    await auth.login({ email: loginForm.email, password: loginForm.password });
     router.push({ name: auth.resolveHomeRouteName() });
   } catch (error) {
-    loginError.value = error?.response?.data?.message || '登录失败，请检查用户名或密码。';
+    loginError.value = error?.response?.data?.message || '登录失败，请检查邮箱或密码。';
   }
 };
 </script>

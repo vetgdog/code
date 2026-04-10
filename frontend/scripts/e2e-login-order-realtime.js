@@ -6,6 +6,7 @@ const apiBaseUrl = process.env.API_BASE_URL || 'http://127.0.0.1:8085/api/v1';
 const wsUrl = process.env.WS_BASE_URL || 'http://127.0.0.1:8085/ws';
 
 const username = process.env.E2E_USERNAME || `e2e_user_${Date.now()}`;
+const email = process.env.E2E_EMAIL || `${username}@example.com`;
 const password = process.env.E2E_PASSWORD || 'e2e_pass_123';
 
 const http = axios.create({
@@ -60,8 +61,14 @@ const run = async () => {
   console.log(`Using WS : ${wsUrl}`);
 
   try {
-    await http.post('/auth/register', { username, password });
-    console.log(`Registered test user: ${username}`);
+    await http.post('/auth/register', {
+      email,
+      username,
+      fullName: 'E2E Test User',
+      phone: '13800000000',
+      password
+    });
+    console.log(`Registered test user: ${email}`);
   } catch (error) {
     const status = error?.response?.status;
     if (status) {
@@ -71,7 +78,7 @@ const run = async () => {
     }
   }
 
-  const loginResponse = await http.post('/auth/login', { username, password });
+  const loginResponse = await http.post('/auth/login', { email, password });
   const token = loginResponse?.data?.token;
   if (!token) {
     throw new Error('Login succeeded but token is missing.');

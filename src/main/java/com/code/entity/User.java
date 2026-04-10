@@ -21,6 +21,7 @@ public class User {
     private String password;
 
     private String fullName;
+    @Column(nullable = false, unique = true, length = 200)
     private String email;
     private String phone;
     private Boolean enabled = true;

@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS `users` (
   `username` VARCHAR(100) NOT NULL UNIQUE, -- 用户名
   `password` VARCHAR(255) NOT NULL, -- 密码（加密存储）
   `full_name` VARCHAR(200), -- 全名
-  `email` VARCHAR(200), -- 邮箱
+  `email` VARCHAR(200) NOT NULL UNIQUE, -- 邮箱
   `phone` VARCHAR(50), -- 电话
   `enabled` TINYINT(1) DEFAULT 1, -- 是否启用
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP, -- 创建时间

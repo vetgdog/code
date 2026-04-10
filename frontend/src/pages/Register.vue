@@ -6,8 +6,23 @@
 
       <form class="mt-6 space-y-4" @submit.prevent="handleRegister">
         <div>
+          <label class="text-xs font-semibold uppercase tracking-widest text-slate-500">邮箱</label>
+          <input v-model="form.email" type="email" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required />
+        </div>
+
+        <div>
           <label class="text-xs font-semibold uppercase tracking-widest text-slate-500">用户名</label>
           <input v-model="form.username" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required />
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold uppercase tracking-widest text-slate-500">全名</label>
+          <input v-model="form.fullName" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required />
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold uppercase tracking-widest text-slate-500">电话</label>
+          <input v-model="form.phone" class="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" required />
         </div>
 
         <div>
@@ -56,7 +71,10 @@ import { INTERNAL_POSITIONS, resolveRoleFromSelection, USER_TYPES } from '../con
 const auth = useAuthStore();
 
 const form = reactive({
+  email: '',
   username: '',
+  fullName: '',
+  phone: '',
   password: '',
   userType: '',
   internalPosition: ''
@@ -78,7 +96,10 @@ const handleRegister = async () => {
     const role = resolveRoleFromSelection(form.userType, form.internalPosition);
     await auth.register(
       {
+        email: form.email,
         username: form.username,
+        fullName: form.fullName,
+        phone: form.phone,
         password: form.password
       },
       {
