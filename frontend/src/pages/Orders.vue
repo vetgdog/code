@@ -1,6 +1,19 @@
 <template>
   <div class="space-y-6">
     <section v-if="canCreateOrder" class="bg-white rounded-lg border border-outline-variant/10 p-5">
+      <h3 class="text-sm font-bold tracking-tight">产品录入</h3>
+      <form class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3" @submit.prevent="handleCreateProduct">
+        <input v-model="productForm.sku" placeholder="SKU" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <input v-model="productForm.name" placeholder="产品名称" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <input v-model="productForm.unit" placeholder="单位(可选)" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="productForm.unitPrice" placeholder="默认单价" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" type="number" min="0" step="0.01" />
+        <button class="rounded bg-primary text-white px-3 py-2 text-sm font-semibold">保存产品</button>
+      </form>
+      <div v-if="productMessage" class="mt-3 text-xs text-emerald-600">{{ productMessage }}</div>
+      <div v-if="productError" class="mt-3 text-xs text-error">{{ productError }}</div>
+    </section>
+
+    <section v-if="canCreateOrder" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <h3 class="text-sm font-bold tracking-tight">创建销售订单</h3>
       <form class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4" @submit.prevent="handleCreate">
         <input v-model="form.orderNo" placeholder="订单号" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
@@ -68,7 +81,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { orderApi } from '../api/services.js';
+import { orderApi, productApi } from '../api/services.js';
 import { useRealtimeStore } from '../store/realtime.js';
 import { useAuthStore } from '../store/auth.js';
 
@@ -96,6 +109,15 @@ const createMessage = ref('');
 const createError = ref('');
 const planMessage = ref('');
 const planError = ref('');
+const productMessage = ref('');
+const productError = ref('');
+
+const productForm = reactive({
+  sku: '',
+  name: '',
+  unit: '',
+  unitPrice: null
+});
 
 const loadOrders = async () => {
   loading.value = true;
@@ -164,6 +186,26 @@ const handleCreatePlan = async (orderId) => {
     planMessage.value = `订单 ${orderId} 已生成生产计划。`;
   } catch (error) {
     planError.value = error?.response?.data?.message || '生成生产计划失败。';
+  }
+};
+
+const handleCreateProduct = async () => {
+  productMessage.value = '';
+  productError.value = '';
+  try {
+    await productApi.create({
+      sku: productForm.sku,
+      name: productForm.name,
+      unit: productForm.unit || null,
+      unitPrice: productForm.unitPrice == null ? 0 : Number(productForm.unitPrice)
+    });
+    productMessage.value = '产品录入成功。';
+    productForm.sku = '';
+    productForm.name = '';
+    productForm.unit = '';
+    productForm.unitPrice = null;
+  } catch (error) {
+    productError.value = error?.response?.data?.message || error?.response?.data || '产品录入失败。';
   }
 };
 

@@ -22,6 +22,7 @@ public class Product {
     private String description;
     private String unit;
     private Double weight;
+    private Double unitPrice = 0.0;
 
     private LocalDateTime createdAt = LocalDateTime.now();
 }

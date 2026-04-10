@@ -33,8 +33,15 @@ export const qualityApi = {
   getRecords: (batchId) => client.get(`/quality/batch/${batchId}/records`)
 };
 
+export const productApi = {
+  list: () => client.get('/products'),
+  create: (payload) => client.post('/products', payload)
+};
+
 export const customerApi = {
   listOrders: (customerId) => client.get(`/customer/${customerId}/orders`),
+  listMyOrders: () => client.get('/customer/me/orders'),
+  createOrder: (payload) => client.post('/customer/orders', payload),
   getOrder: (orderId) => client.get(`/customer/orders/${orderId}`)
 };
 

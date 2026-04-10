@@ -3,7 +3,9 @@ package com.code.controller;
 import com.code.dto.AuthRequest;
 import com.code.dto.AuthResponse;
 import com.code.entity.User;
+import com.code.entity.Customer;
 import com.code.repository.UserRepository;
+import com.code.repository.CustomerRepository;
 import com.code.repository.RoleRepository;
 import com.code.entity.Role;
 import com.code.security.JwtUtil;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
@@ -34,6 +37,9 @@ public class AuthController {
 
     @Autowired
     private RoleRepository roleRepository;
+
+    @Autowired
+    private CustomerRepository customerRepository;
 
     @Autowired
     private PasswordEncoder passwordEncoder;
@@ -92,6 +98,16 @@ public class AuthController {
                 return roleRepository.save(nr);
             });
             u.setRoles(java.util.Set.of(r));
+
+            if ("ROLE_CUSTOMER".equals(roleName) && customerRepository.findByEmail(email).isEmpty()) {
+                Customer customer = new Customer();
+                customer.setCode(generateCustomerCode());
+                customer.setName(fullName);
+                customer.setContact(fullName);
+                customer.setPhone(phone);
+                customer.setEmail(email);
+                customerRepository.save(customer);
+            }
         }
 
         userRepository.save(u);
@@ -108,5 +124,13 @@ public class AuthController {
 
     private boolean isBlank(String value) {
         return trim(value).isEmpty();
+    }
+
+    private String generateCustomerCode() {
+        String code;
+        do {
+            code = "CUS-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+        } while (customerRepository.existsByCode(code));
+        return code;
     }
 }

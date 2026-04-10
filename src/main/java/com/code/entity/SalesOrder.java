@@ -25,6 +25,7 @@ public class SalesOrder {
     private String status = "NEW";
     private Double totalAmount = 0.0;
     private LocalDateTime deliveryDate;
+    private String shippingAddress;
 
     @OneToMany(mappedBy = "salesOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<OrderItem> items;

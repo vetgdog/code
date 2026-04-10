@@ -6,9 +6,9 @@ export const USER_TYPES = {
 
 export const INTERNAL_POSITIONS = [
   { value: 'ADMIN', label: '系统管理员', role: 'ROLE_ADMIN' },
-  { value: 'SALES_MANAGER', label: '销售经理', role: 'ROLE_SALES_MANAGER' },
-  { value: 'PROCUREMENT_MANAGER', label: '采购经理', role: 'ROLE_PROCUREMENT_MANAGER' },
-  { value: 'PRODUCTION_MANAGER', label: '生产经理', role: 'ROLE_PRODUCTION_MANAGER' },
+  { value: 'SALES_MANAGER', label: '销售管理员', role: 'ROLE_SALES_MANAGER' },
+  { value: 'PROCUREMENT_MANAGER', label: '采购管理员', role: 'ROLE_PROCUREMENT_MANAGER' },
+  { value: 'PRODUCTION_MANAGER', label: '生产管理员', role: 'ROLE_PRODUCTION_MANAGER' },
   { value: 'WAREHOUSE_MANAGER', label: '仓库管理员', role: 'ROLE_WAREHOUSE_MANAGER' },
   { value: 'QUALITY_INSPECTOR', label: '质检员', role: 'ROLE_QUALITY_INSPECTOR' }
 ];

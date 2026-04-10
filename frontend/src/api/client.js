@@ -18,6 +18,7 @@ client.interceptors.response.use(
   (error) => {
     if (error?.response?.status === 401) {
       localStorage.removeItem('auth_token');
+       localStorage.removeItem('auth_email');
       localStorage.removeItem('auth_username');
       localStorage.removeItem('auth_role');
       localStorage.removeItem('auth_user_type');

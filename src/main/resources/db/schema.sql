@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS `products` (
   `description` TEXT, -- 产品描述
   `unit` VARCHAR(32), -- 单位
   `weight` DECIMAL(18,4), -- 重量
+  `unit_price` DECIMAL(18,4) DEFAULT 0, -- 默认单价
   `default_warehouse_id` BIGINT, -- 默认仓库ID
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_products_default_wh (default_warehouse_id -> warehouses.id)
@@ -112,6 +113,7 @@ CREATE TABLE IF NOT EXISTS `sales_order` (
   `status` VARCHAR(50) DEFAULT 'NEW', -- 订单状态
   `total_amount` DECIMAL(18,2) DEFAULT 0, -- 总金额
   `delivery_date` DATETIME, -- 交货日期
+  `shipping_address` VARCHAR(500), -- 收货地址
   `created_by` BIGINT, -- 创建人ID
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_salesorder_customer (customer_id -> customers.id)
