@@ -8,7 +8,11 @@ export const authApi = {
 export const orderApi = {
   list: () => client.get('/orders'),
   create: (payload) => client.post('/orders', payload),
-  createPlan: (orderId) => client.post(`/orders/${orderId}/create-plan`)
+  createPlan: (orderId) => client.post(`/orders/${orderId}/create-plan`),
+  routeToWarehouse: (orderId, payload = {}) => client.post(`/orders/${orderId}/route-to-warehouse`, payload),
+  warehouseReview: (orderId, payload = {}) => client.post(`/orders/${orderId}/warehouse-review`, payload),
+  salesDecision: (orderId, decision, payload = {}) => client.post(`/orders/${orderId}/sales-decision?decision=${encodeURIComponent(decision)}`, payload),
+  updateSalesStatus: (orderId, status) => client.post(`/orders/${orderId}/sales-status?status=${encodeURIComponent(status)}`)
 };
 
 export const productionApi = {

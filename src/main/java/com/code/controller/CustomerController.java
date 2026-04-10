@@ -9,6 +9,8 @@ import com.code.repository.CustomerRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.SalesOrderRepository;
 import com.code.repository.UserRepository;
+import com.code.service.OrderWorkflowService;
+import com.code.websocket.NotificationMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.http.ResponseEntity;
@@ -77,7 +79,7 @@ public class CustomerController {
         SalesOrder order = new SalesOrder();
         order.setOrderNo(isBlank(request.getOrderNo()) ? generateOrderNo() : request.getOrderNo().trim());
         order.setCustomer(customer);
-        order.setStatus("已接单");
+        order.setStatus(OrderWorkflowService.STATUS_PENDING_SALES_REVIEW);
         order.setShippingAddress(request.getShippingAddress().trim());
         order.setOrderDate(LocalDateTime.now());
         order.setCreatedAt(LocalDateTime.now());
@@ -114,7 +116,9 @@ public class CustomerController {
         order.setTotalAmount(total);
 
         SalesOrder saved = salesOrderRepository.save(order);
-        messagingTemplate.convertAndSend("/topic/orders", saved);
+        NotificationMessage message = new NotificationMessage("ORDER_SUBMITTED", "SalesOrder", saved.getId(), saved, LocalDateTime.now());
+        messagingTemplate.convertAndSend("/topic/orders", message);
+        messagingTemplate.convertAndSend("/topic/orders/sales", message);
         return ResponseEntity.ok(saved);
     }
 
@@ -156,17 +160,23 @@ public class CustomerController {
 
     private int statusRank(String status) {
         String value = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
-        if ("已接单".equals(status) || "NEW".equals(value) || "ACCEPTED".equals(value)) {
+        if (OrderWorkflowService.STATUS_PENDING_SALES_REVIEW.equals(status) || "PENDING_SALES_REVIEW".equals(value)) {
+            return 0;
+        }
+        if (OrderWorkflowService.STATUS_PENDING_WAREHOUSE_CHECK.equals(status) || "PENDING_WAREHOUSE_CHECK".equals(value)) {
             return 1;
         }
-        if ("生产中".equals(status) || "IN_PRODUCTION".equals(value) || "PRODUCING".equals(value)) {
+        if ("已接单".equals(status) || "NEW".equals(value) || "ACCEPTED".equals(value)) {
             return 2;
         }
-        if ("已发货".equals(status) || "SHIPPED".equals(value)) {
+        if ("生产中".equals(status) || "IN_PRODUCTION".equals(value) || "PRODUCING".equals(value)) {
             return 3;
         }
-        if ("已完成".equals(status) || "DONE".equals(value) || "COMPLETED".equals(value)) {
+        if ("已发货".equals(status) || "SHIPPED".equals(value)) {
             return 4;
+        }
+        if ("已完成".equals(status) || "DONE".equals(value) || "COMPLETED".equals(value)) {
+            return 5;
         }
         return 99;
     }

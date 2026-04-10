@@ -238,7 +238,11 @@ const submitOrder = async () => {
     orderForm.orderNo = '';
     await loadOrders();
   } catch (err) {
-    createError.value = err?.response?.data?.message || err?.response?.data || '下单失败，请稍后重试。';
+    if (err?.response?.status === 403) {
+      createError.value = '当前账号没有客户下单权限，请重新登录客户账号后重试。';
+    } else {
+      createError.value = err?.response?.data?.message || err?.response?.data || '下单失败，请稍后重试。';
+    }
   } finally {
     submitting.value = false;
   }

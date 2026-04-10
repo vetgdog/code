@@ -22,6 +22,8 @@ const ROLE_CONFIG = {
       'orders:view',
       'orders:create',
       'orders:plan',
+      'orders:review',
+      'orders:warehouse-check',
       'production:view',
       'production:create',
       'production:update',
@@ -46,7 +48,7 @@ const ROLE_CONFIG = {
   ROLE_SALES_MANAGER: {
     defaultRouteName: 'Orders',
     routeNames: ['Dashboard', 'Orders', 'Customer'],
-    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:plan', 'customer:view']
+    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:plan', 'orders:review', 'customer:view']
   },
   ROLE_PROCUREMENT_MANAGER: {
     defaultRouteName: 'Procurement',
@@ -55,13 +57,13 @@ const ROLE_CONFIG = {
   },
   ROLE_PRODUCTION_MANAGER: {
     defaultRouteName: 'Production',
-    routeNames: ['Dashboard', 'Production'],
-    permissions: ['dashboard:view', 'production:view', 'production:create', 'production:update']
+    routeNames: ['Dashboard', 'Production', 'Orders'],
+    permissions: ['dashboard:view', 'production:view', 'production:create', 'production:update', 'orders:view']
   },
   ROLE_WAREHOUSE_MANAGER: {
     defaultRouteName: 'Inventory',
-    routeNames: ['Dashboard', 'Inventory'],
-    permissions: ['dashboard:view', 'inventory:view', 'inventory:edit']
+    routeNames: ['Dashboard', 'Inventory', 'Orders'],
+    permissions: ['dashboard:view', 'inventory:view', 'inventory:edit', 'orders:view', 'orders:warehouse-check']
   },
   ROLE_QUALITY_INSPECTOR: {
     defaultRouteName: 'Quality',

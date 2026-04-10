@@ -59,9 +59,12 @@ const connect = () => {
       onConnect: () => {
         state.connected = true;
 
-        stompClient.subscribe('/topic/orders', (message) => {
-          const body = JSON.parse(message.body || '{}');
-          appendEvent(normalizeMessage('/topic/orders', body));
+        const orderTopics = ['/topic/orders', '/topic/orders/sales', '/topic/orders/warehouse', '/topic/orders/production'];
+        orderTopics.forEach((topic) => {
+          stompClient.subscribe(topic, (message) => {
+            const body = JSON.parse(message.body || '{}');
+            appendEvent(normalizeMessage(topic, body));
+          });
         });
 
         stompClient.subscribe('/topic/production', (message) => {

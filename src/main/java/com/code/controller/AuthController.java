@@ -10,6 +10,7 @@ import com.code.repository.RoleRepository;
 import com.code.entity.Role;
 import com.code.security.JwtUtil;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -76,9 +77,6 @@ public class AuthController {
         if (userRepository.existsByEmail(email)) {
             return ResponseEntity.badRequest().body("邮箱已存在");
         }
-        if (userRepository.existsByUsername(username)) {
-            return ResponseEntity.badRequest().body("用户名已存在");
-        }
 
         User u = new User();
         u.setEmail(email);
@@ -87,31 +85,47 @@ public class AuthController {
         u.setPhone(phone);
         u.setPassword(passwordEncoder.encode(req.getPassword()));
 
-        if (role != null && !role.isEmpty()) {
-            String rn = role.toUpperCase();
-            // create role name with prefix ROLE_ to match Spring Security's hasRole checks
-            String roleName = rn.startsWith("ROLE_") ? rn : "ROLE_" + rn;
-            Role r = roleRepository.findByName(roleName).orElseGet(() -> {
-                Role nr = new Role();
-                nr.setName(roleName);
-                nr.setDescription(roleName + " created");
-                return roleRepository.save(nr);
-            });
-            u.setRoles(java.util.Set.of(r));
+        String requestedRole = trim(role).toUpperCase(Locale.ROOT);
+        String roleName = requestedRole.isEmpty() ? "ROLE_CUSTOMER" : (requestedRole.startsWith("ROLE_") ? requestedRole : "ROLE_" + requestedRole);
+        Role r = roleRepository.findByName(roleName).orElseGet(() -> {
+            Role nr = new Role();
+            nr.setName(roleName);
+            nr.setDescription(roleName + " created");
+            return roleRepository.save(nr);
+        });
+        u.setRoles(java.util.Set.of(r));
 
-            if ("ROLE_CUSTOMER".equals(roleName) && customerRepository.findByEmail(email).isEmpty()) {
-                Customer customer = new Customer();
-                customer.setCode(generateCustomerCode());
-                customer.setName(fullName);
-                customer.setContact(fullName);
-                customer.setPhone(phone);
-                customer.setEmail(email);
-                customerRepository.save(customer);
-            }
+        if ("ROLE_CUSTOMER".equals(roleName) && customerRepository.findByEmail(email).isEmpty()) {
+            Customer customer = new Customer();
+            customer.setCode(generateCustomerCode());
+            customer.setName(fullName);
+            customer.setContact(fullName);
+            customer.setPhone(phone);
+            customer.setEmail(email);
+            customerRepository.save(customer);
         }
 
-        userRepository.save(u);
-        return ResponseEntity.ok("ok");
+        try {
+            userRepository.save(u);
+            return ResponseEntity.ok("ok");
+        } catch (DataIntegrityViolationException ex) {
+            String rootMessage = extractRootMessage(ex).toLowerCase(Locale.ROOT);
+            if (rootMessage.contains("user_email") || rootMessage.contains("email") || rootMessage.contains("duplicate")) {
+                return ResponseEntity.badRequest().body("该邮箱已注册，请直接登录");
+            }
+            if (rootMessage.contains("doesn't have a default value") && rootMessage.contains("user_email")) {
+                return ResponseEntity.badRequest().body("注册失败：邮箱字段异常，请联系管理员检查用户表结构");
+            }
+            return ResponseEntity.badRequest().body("注册失败：提交信息不符合系统规则，请检查后重试");
+        }
+    }
+
+    private String extractRootMessage(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor.getCause() != null) {
+            cursor = cursor.getCause();
+        }
+        return cursor.getMessage() == null ? "" : cursor.getMessage();
     }
 
     private String normalize(String value) {

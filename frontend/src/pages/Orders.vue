@@ -66,14 +66,51 @@
               <td class="py-3">{{ order.customer?.id || '-' }}</td>
               <td class="py-3">¥{{ formatAmount(order.totalAmount) }}</td>
               <td class="py-3">
+                <button
+                  v-if="canSalesReview && order.status === '待销售审核'"
+                  class="text-xs text-primary mr-3"
+                  @click="handleSalesDecision(order.id, 'ACCEPT')"
+                >
+                  接受并通知仓库
+                </button>
+                <button
+                  v-if="canSalesReview && order.status === '待销售审核'"
+                  class="text-xs text-red-600 mr-3"
+                  @click="handleSalesDecision(order.id, 'REJECT')"
+                >
+                  拒绝
+                </button>
+                <button
+                  v-if="canWarehouseReview && order.status === '待仓库核查'"
+                  class="text-xs text-emerald-600 mr-3"
+                  @click="handleWarehouseReview(order.id)"
+                >
+                  库存核查并流转
+                </button>
+                <button
+                  v-if="canSalesReview && (order.status === '已接单' || order.status === '生产中')"
+                  class="text-xs text-indigo-600 mr-3"
+                  @click="handleSalesStatusUpdate(order.id, '已发货')"
+                >
+                  标记已发货
+                </button>
+                <button
+                  v-if="canSalesReview && order.status === '已发货'"
+                  class="text-xs text-emerald-700 mr-3"
+                  @click="handleSalesStatusUpdate(order.id, '已完成')"
+                >
+                  标记已完成
+                </button>
                 <button v-if="canCreatePlan" class="text-xs text-primary" @click="handleCreatePlan(order.id)">生成生产计划</button>
-                <span v-else class="text-xs text-on-surface-variant">无权限</span>
+                <span v-else-if="!canSalesReview && !canWarehouseReview" class="text-xs text-on-surface-variant">无权限</span>
               </td>
             </tr>
           </tbody>
         </table>
         <div v-if="planMessage" class="mt-3 text-xs text-emerald-600">{{ planMessage }}</div>
         <div v-if="planError" class="mt-3 text-xs text-error">{{ planError }}</div>
+        <div v-if="workflowMessage" class="mt-3 text-xs text-emerald-600">{{ workflowMessage }}</div>
+        <div v-if="workflowError" class="mt-3 text-xs text-error">{{ workflowError }}</div>
       </div>
     </section>
   </div>
@@ -91,6 +128,8 @@ const realtime = useRealtimeStore();
 const auth = useAuthStore();
 const canCreateOrder = computed(() => auth.hasPermission('orders:create'));
 const canCreatePlan = computed(() => auth.hasPermission('orders:plan'));
+const canSalesReview = computed(() => auth.hasPermission('orders:review'));
+const canWarehouseReview = computed(() => auth.hasPermission('orders:warehouse-check'));
 
 const form = reactive({
   orderNo: '',
@@ -109,6 +148,8 @@ const createMessage = ref('');
 const createError = ref('');
 const planMessage = ref('');
 const planError = ref('');
+const workflowMessage = ref('');
+const workflowError = ref('');
 const productMessage = ref('');
 const productError = ref('');
 
@@ -136,7 +177,7 @@ onMounted(loadOrders);
 watch(
   () => realtime.state.lastMessage,
   (message) => {
-    if (message?.topic === '/topic/orders') {
+    if (message?.topic && message.topic.startsWith('/topic/orders')) {
       loadOrders();
     }
   }
@@ -186,6 +227,47 @@ const handleCreatePlan = async (orderId) => {
     planMessage.value = `订单 ${orderId} 已生成生产计划。`;
   } catch (error) {
     planError.value = error?.response?.data?.message || '生成生产计划失败。';
+  }
+};
+
+const handleSalesDecision = async (orderId, decision) => {
+  workflowMessage.value = '';
+  workflowError.value = '';
+  try {
+    await orderApi.salesDecision(orderId, decision, {});
+    workflowMessage.value = decision === 'REJECT'
+      ? `订单 ${orderId} 已拒绝。`
+      : `订单 ${orderId} 已通过销售审核并通知仓库核查。`;
+    await loadOrders();
+  } catch (error) {
+    workflowError.value = error?.response?.data?.message || error?.response?.data || '操作失败。';
+  }
+};
+
+const handleSalesStatusUpdate = async (orderId, status) => {
+  workflowMessage.value = '';
+  workflowError.value = '';
+  try {
+    await orderApi.updateSalesStatus(orderId, status);
+    workflowMessage.value = `订单 ${orderId} 已更新为 ${status}。`;
+    await loadOrders();
+  } catch (error) {
+    workflowError.value = error?.response?.data?.message || error?.response?.data || '状态更新失败。';
+  }
+};
+
+const handleWarehouseReview = async (orderId) => {
+  workflowMessage.value = '';
+  workflowError.value = '';
+  try {
+    const response = await orderApi.warehouseReview(orderId, {});
+    const shortageCount = response?.data?.shortages?.length || 0;
+    workflowMessage.value = shortageCount > 0
+      ? `订单 ${orderId} 库存不足，已自动通知生产并生成计划。`
+      : `订单 ${orderId} 库存充足，已流转为已接单。`;
+    await loadOrders();
+  } catch (error) {
+    workflowError.value = error?.response?.data?.message || error?.response?.data || '库存核查失败。';
   }
 };
 

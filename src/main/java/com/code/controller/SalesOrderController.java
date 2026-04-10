@@ -5,10 +5,17 @@ import com.code.entity.SalesOrder;
 import com.code.repository.SalesOrderRepository;
 import com.code.entity.ProductionPlan;
 import com.code.repository.ProductionPlanRepository;
+import com.code.service.OrderWorkflowService;
+import com.code.websocket.NotificationMessage;
 import java.time.LocalDateTime;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
@@ -24,6 +31,9 @@ public class SalesOrderController {
 
     @Autowired
     private ProductionPlanRepository productionPlanRepository;
+
+    @Autowired
+    private OrderWorkflowService orderWorkflowService;
 
     @GetMapping
     public List<SalesOrder> list() {
@@ -69,6 +79,94 @@ public class SalesOrderController {
 
         messagingTemplate.convertAndSend("/topic/production", saved);
         return saved;
+    }
+
+    @PostMapping("/{orderId}/route-to-warehouse")
+    public ResponseEntity<?> routeToWarehouse(@PathVariable Long orderId,
+                                              @RequestBody(required = false) WorkflowActionRequest request,
+                                              Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
+        SalesOrder order = orderWorkflowService.routeToWarehouseCheck(orderId, authentication == null ? "" : authentication.getName());
+        return ResponseEntity.ok(order);
+    }
+
+    @PostMapping("/{orderId}/warehouse-review")
+    public ResponseEntity<?> warehouseReview(@PathVariable Long orderId,
+                                             @RequestBody(required = false) WorkflowActionRequest request,
+                                             Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        String note = request == null ? "" : request.getNote();
+        OrderWorkflowService.WarehouseReviewResult result =
+                orderWorkflowService.warehouseReview(orderId, authentication == null ? "" : authentication.getName(), note);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/{orderId}/sales-decision")
+    public ResponseEntity<?> salesDecision(@PathVariable Long orderId,
+                                           @RequestParam String decision,
+                                           @RequestBody(required = false) WorkflowActionRequest request,
+                                           Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
+        String normalized = decision == null ? "" : decision.trim().toUpperCase();
+        if ("ACCEPT".equals(normalized)) {
+            SalesOrder order = orderWorkflowService.routeToWarehouseCheck(orderId, authentication == null ? "" : authentication.getName());
+            return ResponseEntity.ok(order);
+        }
+        if ("REJECT".equals(normalized)) {
+            SalesOrder order = updateSalesStatus(orderId, "已拒绝", "ORDER_REJECTED", authentication);
+            return ResponseEntity.ok(order);
+        }
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "decision 仅支持 ACCEPT 或 REJECT");
+    }
+
+    @PostMapping("/{orderId}/sales-status")
+    public ResponseEntity<?> updateBySales(@PathVariable Long orderId,
+                                           @RequestParam String status,
+                                           Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
+        String nextStatus = status == null ? "" : status.trim();
+        if (!"已发货".equals(nextStatus) && !"已完成".equals(nextStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status 仅支持 已发货 或 已完成");
+        }
+        SalesOrder order = updateSalesStatus(orderId, nextStatus, "ORDER_STATUS_UPDATED", authentication);
+        return ResponseEntity.ok(order);
+    }
+
+    private SalesOrder updateSalesStatus(Long orderId, String nextStatus, String eventType, Authentication authentication) {
+        SalesOrder order = salesOrderRepository.findById(orderId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "订单不存在: " + orderId));
+        order.setStatus(nextStatus);
+        SalesOrder saved = salesOrderRepository.save(order);
+        NotificationMessage message = new NotificationMessage(eventType, "SalesOrder", saved.getId(), saved, LocalDateTime.now());
+        messagingTemplate.convertAndSend("/topic/orders", message);
+        messagingTemplate.convertAndSend("/topic/orders/sales", message);
+        return saved;
+    }
+
+    private void ensureRole(Authentication authentication, String... allowedRoles) {
+        if (authentication == null || authentication.getAuthorities() == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权限执行该操作");
+        }
+        for (GrantedAuthority authority : authentication.getAuthorities()) {
+            for (String role : allowedRoles) {
+                if (role.equalsIgnoreCase(authority.getAuthority())) {
+                    return;
+                }
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权限执行该操作");
+    }
+
+    public static class WorkflowActionRequest {
+        private String note;
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
+        }
     }
 }
 
