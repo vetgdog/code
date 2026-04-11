@@ -30,6 +30,7 @@ public class OrderWorkflowService {
     public static final String STATUS_PENDING_WAREHOUSE_CHECK = "待仓库核查";
     public static final String STATUS_ACCEPTED = "已接单";
     public static final String STATUS_IN_PRODUCTION = "生产中";
+    public static final String STATUS_SHIPPED = "已发货";
 
     @Autowired
     private SalesOrderRepository salesOrderRepository;
@@ -69,7 +70,7 @@ public class OrderWorkflowService {
     public WarehouseReviewResult warehouseReview(Long orderId, String operator, String note) {
         SalesOrder order = getOrder(orderId);
         String currentStatus = safeStatus(order.getStatus());
-        if (!STATUS_PENDING_WAREHOUSE_CHECK.equals(currentStatus)) {
+        if (!STATUS_PENDING_WAREHOUSE_CHECK.equals(currentStatus) && !STATUS_IN_PRODUCTION.equals(currentStatus)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许仓库核查: " + order.getStatus());
         }
         if (order.getItems() == null || order.getItems().isEmpty()) {
@@ -97,6 +98,45 @@ public class OrderWorkflowService {
         WarehouseReviewResult result = new WarehouseReviewResult(savedOrder, shortages, createdPlans, note);
         notificationService.broadcast("/topic/orders", new NotificationMessage("ORDER_WORKFLOW_UPDATED", "SalesOrder", savedOrder.getId(), result, LocalDateTime.now()));
         return result;
+    }
+
+    @Transactional
+    public SalesOrder markProductionCompleted(Long orderId, String operator, String note) {
+        SalesOrder order = getOrder(orderId);
+        if (!STATUS_IN_PRODUCTION.equals(safeStatus(order.getStatus()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许生产完工回传: " + order.getStatus());
+        }
+
+        List<ProductionPlan> plans = productionPlanRepository.findByPlanNoStartingWith("PLAN-" + order.getOrderNo() + "-");
+        for (ProductionPlan plan : plans) {
+            plan.setStatus("DONE");
+        }
+        if (!plans.isEmpty()) {
+            productionPlanRepository.saveAll(plans);
+        }
+
+        order.setStatus(STATUS_PENDING_WAREHOUSE_CHECK);
+        SalesOrder saved = salesOrderRepository.save(order);
+        notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_PRODUCTION_DONE", saved, operator));
+        notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_PRODUCTION_DONE", saved, operator));
+        notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
+        return saved;
+    }
+
+    @Transactional
+    public SalesOrder markOrderShipped(Long orderId, String operator, String note) {
+        SalesOrder order = getOrder(orderId);
+        if (!STATUS_ACCEPTED.equals(safeStatus(order.getStatus()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许仓库发货: " + order.getStatus());
+        }
+        consumeInventoryForShipment(order);
+        order.setStatus(STATUS_SHIPPED);
+        SalesOrder saved = salesOrderRepository.save(order);
+
+        notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_SHIPPED_BY_WAREHOUSE", saved, operator));
+        notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_SHIPPED_BY_WAREHOUSE", saved, operator));
+        notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
+        return saved;
     }
 
     private SalesOrder getOrder(Long orderId) {
@@ -174,6 +214,50 @@ public class OrderWorkflowService {
             plans.add(productionPlanRepository.save(plan));
         }
         return plans;
+    }
+
+    private void consumeInventoryForShipment(SalesOrder order) {
+        for (OrderItem item : order.getItems()) {
+            Product product = item.getProduct();
+            if (product == null || product.getId() == null) {
+                continue;
+            }
+            double remaining = safeNumber(item.getQuantity());
+            List<InventoryItem> inventoryItems = new ArrayList<>(inventoryItemRepository.findByProductId(product.getId()));
+            inventoryItems.sort(Comparator.comparing(InventoryItem::getId, Comparator.nullsLast(Comparator.naturalOrder())));
+
+            for (InventoryItem inv : inventoryItems) {
+                if (remaining <= 0) {
+                    break;
+                }
+                double reserved = Math.max(0, safeNumber(inv.getReservedQuantity()));
+                if (reserved <= 0) {
+                    continue;
+                }
+                double consume = Math.min(reserved, remaining);
+                inv.setReservedQuantity(reserved - consume);
+                inv.setQuantity(Math.max(0, safeNumber(inv.getQuantity()) - consume));
+                remaining -= consume;
+            }
+
+            for (InventoryItem inv : inventoryItems) {
+                if (remaining <= 0) {
+                    break;
+                }
+                double available = Math.max(0, safeNumber(inv.getQuantity()) - safeNumber(inv.getReservedQuantity()));
+                if (available <= 0) {
+                    continue;
+                }
+                double consume = Math.min(available, remaining);
+                inv.setQuantity(Math.max(0, safeNumber(inv.getQuantity()) - consume));
+                remaining -= consume;
+            }
+
+            if (remaining > 1e-6) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "库存不足，无法发货，请重新核查库存");
+            }
+            inventoryItemRepository.saveAll(inventoryItems);
+        }
     }
 
     private double totalAvailableByProduct(Long productId) {

@@ -57,6 +57,7 @@ public class AuthController {
         List<String> roles = (user.getRoles() == null ? java.util.Set.<Role>of() : user.getRoles())
                 .stream()
                 .map(Role::getName)
+                .map(this::normalizeRoleName)
                 .sorted(Comparator.naturalOrder())
                 .collect(Collectors.toList());
 
@@ -86,7 +87,7 @@ public class AuthController {
         u.setPassword(passwordEncoder.encode(req.getPassword()));
 
         String requestedRole = trim(role).toUpperCase(Locale.ROOT);
-        String roleName = requestedRole.isEmpty() ? "ROLE_CUSTOMER" : (requestedRole.startsWith("ROLE_") ? requestedRole : "ROLE_" + requestedRole);
+        String roleName = normalizeRoleName(requestedRole.isEmpty() ? "ROLE_CUSTOMER" : requestedRole);
         Role r = roleRepository.findByName(roleName).orElseGet(() -> {
             Role nr = new Role();
             nr.setName(roleName);
@@ -138,6 +139,14 @@ public class AuthController {
 
     private boolean isBlank(String value) {
         return trim(value).isEmpty();
+    }
+
+    private String normalizeRoleName(String roleName) {
+        String value = trim(roleName).toUpperCase(Locale.ROOT);
+        if (value.isEmpty()) {
+            return "ROLE_CUSTOMER";
+        }
+        return value.startsWith("ROLE_") ? value : "ROLE_" + value;
     }
 
     private String generateCustomerCode() {

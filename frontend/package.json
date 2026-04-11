@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test:api": "node scripts/api-smoke-test.js",
     "test:realtime": "node scripts/realtime-smoke-test.js",
-    "test:e2e": "node scripts/e2e-login-order-realtime.js"
+    "test:e2e": "node scripts/e2e-login-order-realtime.js",
+    "test:workflow": "node scripts/e2e-customer-order-workflow.js"
   },
   "dependencies": {
     "@stomp/stompjs": "^7.2.0",

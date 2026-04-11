@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <section v-if="canCreateOrder" class="bg-white rounded-lg border border-outline-variant/10 p-5">
+    <section v-if="canManageProducts" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <h3 class="text-sm font-bold tracking-tight">产品录入</h3>
       <form class="mt-4 grid grid-cols-1 md:grid-cols-5 gap-3" @submit.prevent="handleCreateProduct">
         <input v-model="productForm.sku" placeholder="SKU" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
@@ -11,6 +11,41 @@
       </form>
       <div v-if="productMessage" class="mt-3 text-xs text-emerald-600">{{ productMessage }}</div>
       <div v-if="productError" class="mt-3 text-xs text-error">{{ productError }}</div>
+
+      <div class="mt-4 border-t border-outline-variant/20 pt-4">
+        <p class="text-xs font-semibold text-on-surface-variant mb-2">已录入产品</p>
+        <div v-if="products.length === 0" class="text-xs text-on-surface-variant">暂无产品。</div>
+        <table v-else class="w-full text-xs">
+          <thead>
+            <tr class="text-left text-on-surface-variant">
+              <th class="pb-2">SKU</th>
+              <th class="pb-2">名称</th>
+              <th class="pb-2">单价</th>
+              <th class="pb-2">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in products" :key="p.id" class="border-t border-outline-variant/20">
+              <td class="py-2">{{ p.sku }}</td>
+              <td class="py-2">{{ p.name }}</td>
+              <td class="py-2">{{ formatAmount(p.unitPrice) }}</td>
+              <td class="py-2">
+                <button class="text-primary mr-3" @click="prepareEditProduct(p)">编辑</button>
+                <button class="text-red-600" @click="handleDeleteProduct(p.id)">删除</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <form v-if="editingProductId" class="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3" @submit.prevent="handleUpdateProduct">
+        <input v-model="editProductForm.sku" placeholder="SKU" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <input v-model="editProductForm.name" placeholder="产品名称" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <input v-model="editProductForm.unit" placeholder="单位" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="editProductForm.unitPrice" type="number" min="0" step="0.01" placeholder="单价" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <button class="rounded bg-primary text-white px-3 py-2 text-sm font-semibold">保存修改</button>
+        <button type="button" class="rounded border border-outline-variant/50 px-3 py-2 text-sm" @click="cancelEditProduct">取消</button>
+      </form>
     </section>
 
     <section v-if="canCreateOrder" class="bg-white rounded-lg border border-outline-variant/10 p-5">
@@ -88,11 +123,18 @@
                   库存核查并流转
                 </button>
                 <button
-                  v-if="canSalesReview && (order.status === '已接单' || order.status === '生产中')"
-                  class="text-xs text-indigo-600 mr-3"
-                  @click="handleSalesStatusUpdate(order.id, '已发货')"
+                  v-if="canWarehouseReview && order.status === '已接单'"
+                  class="text-xs text-emerald-700 mr-3"
+                  @click="handleWarehouseShip(order.id)"
                 >
-                  标记已发货
+                  仓库确认发货
+                </button>
+                <button
+                  v-if="canProductionUpdate && order.status === '生产中'"
+                  class="text-xs text-orange-600 mr-3"
+                  @click="handleProductionComplete(order.id)"
+                >
+                  生产完成通知仓库
                 </button>
                 <button
                   v-if="canSalesReview && order.status === '已发货'"
@@ -102,7 +144,7 @@
                   标记已完成
                 </button>
                 <button v-if="canCreatePlan" class="text-xs text-primary" @click="handleCreatePlan(order.id)">生成生产计划</button>
-                <span v-else-if="!canSalesReview && !canWarehouseReview" class="text-xs text-on-surface-variant">无权限</span>
+                <span v-else-if="!canSalesReview && !canWarehouseReview && !canProductionUpdate" class="text-xs text-on-surface-variant">无权限</span>
               </td>
             </tr>
           </tbody>
@@ -130,6 +172,11 @@ const canCreateOrder = computed(() => auth.hasPermission('orders:create'));
 const canCreatePlan = computed(() => auth.hasPermission('orders:plan'));
 const canSalesReview = computed(() => auth.hasPermission('orders:review'));
 const canWarehouseReview = computed(() => auth.hasPermission('orders:warehouse-check'));
+const canProductionUpdate = computed(() => auth.hasPermission('production:update'));
+const canManageProducts = computed(() => auth.hasPermission('orders:create'));
+const products = ref([]);
+const editingProductId = ref(null);
+const editProductForm = reactive({ sku: '', name: '', unit: '', unitPrice: null });
 
 const form = reactive({
   orderNo: '',
@@ -172,7 +219,21 @@ const loadOrders = async () => {
   }
 };
 
-onMounted(loadOrders);
+const loadProducts = async () => {
+  try {
+    const response = await productApi.list();
+    products.value = response.data || [];
+  } catch (error) {
+    products.value = [];
+  }
+};
+
+onMounted(async () => {
+  await loadOrders();
+  if (canManageProducts.value) {
+    await loadProducts();
+  }
+});
 
 watch(
   () => realtime.state.lastMessage,
@@ -256,6 +317,30 @@ const handleSalesStatusUpdate = async (orderId, status) => {
   }
 };
 
+const handleWarehouseShip = async (orderId) => {
+  workflowMessage.value = '';
+  workflowError.value = '';
+  try {
+    await orderApi.warehouseShip(orderId, {});
+    workflowMessage.value = `订单 ${orderId} 已由仓库发货并通知销售。`;
+    await loadOrders();
+  } catch (error) {
+    workflowError.value = error?.response?.data?.message || error?.response?.data || '发货失败。';
+  }
+};
+
+const handleProductionComplete = async (orderId) => {
+  workflowMessage.value = '';
+  workflowError.value = '';
+  try {
+    await orderApi.productionComplete(orderId, {});
+    workflowMessage.value = `订单 ${orderId} 已通知仓库重新核查库存。`;
+    await loadOrders();
+  } catch (error) {
+    workflowError.value = error?.response?.data?.message || error?.response?.data || '生产回传失败。';
+  }
+};
+
 const handleWarehouseReview = async (orderId) => {
   workflowMessage.value = '';
   workflowError.value = '';
@@ -286,8 +371,55 @@ const handleCreateProduct = async () => {
     productForm.name = '';
     productForm.unit = '';
     productForm.unitPrice = null;
+    await loadProducts();
   } catch (error) {
     productError.value = error?.response?.data?.message || error?.response?.data || '产品录入失败。';
+  }
+};
+
+const prepareEditProduct = (product) => {
+  editingProductId.value = product.id;
+  editProductForm.sku = product.sku || '';
+  editProductForm.name = product.name || '';
+  editProductForm.unit = product.unit || '';
+  editProductForm.unitPrice = Number(product.unitPrice || 0);
+};
+
+const cancelEditProduct = () => {
+  editingProductId.value = null;
+  editProductForm.sku = '';
+  editProductForm.name = '';
+  editProductForm.unit = '';
+  editProductForm.unitPrice = null;
+};
+
+const handleUpdateProduct = async () => {
+  productMessage.value = '';
+  productError.value = '';
+  try {
+    await productApi.update(editingProductId.value, {
+      sku: editProductForm.sku,
+      name: editProductForm.name,
+      unit: editProductForm.unit || null,
+      unitPrice: Number(editProductForm.unitPrice || 0)
+    });
+    productMessage.value = '产品更新成功。';
+    cancelEditProduct();
+    await loadProducts();
+  } catch (error) {
+    productError.value = error?.response?.data?.message || error?.response?.data || '产品更新失败。';
+  }
+};
+
+const handleDeleteProduct = async (id) => {
+  productMessage.value = '';
+  productError.value = '';
+  try {
+    await productApi.remove(id);
+    productMessage.value = '产品删除成功。';
+    await loadProducts();
+  } catch (error) {
+    productError.value = error?.response?.data?.message || error?.response?.data || '产品删除失败。';
   }
 };
 

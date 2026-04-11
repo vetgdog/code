@@ -2,6 +2,7 @@ package com.code.service;
 
 import com.code.entity.InventoryItem;
 import com.code.entity.OrderItem;
+import com.code.entity.ProductionPlan;
 import com.code.entity.Product;
 import com.code.entity.SalesOrder;
 import com.code.repository.InventoryItemRepository;
@@ -90,6 +91,44 @@ class OrderWorkflowServiceTest {
         assertEquals(5.0, result.getShortages().get(0).getShortageQuantity());
         assertEquals(1, result.getProductionPlans().size());
         verify(productionPlanRepository).save(any());
+    }
+
+    @Test
+    void markProductionCompletedMovesOrderBackToWarehouseCheck() {
+        SalesOrder order = buildOrder(3L, OrderWorkflowService.STATUS_IN_PRODUCTION, 300L, 4.0);
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(1L);
+        plan.setPlanNo("PLAN-" + order.getOrderNo() + "-300");
+        plan.setStatus("PLANNED");
+
+        when(salesOrderRepository.findById(3L)).thenReturn(Optional.of(order));
+        when(productionPlanRepository.findByPlanNoStartingWith("PLAN-" + order.getOrderNo() + "-")).thenReturn(List.of(plan));
+        when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SalesOrder result = orderWorkflowService.markProductionCompleted(3L, "prod@test.com", "done");
+
+        assertEquals(OrderWorkflowService.STATUS_PENDING_WAREHOUSE_CHECK, result.getStatus());
+        assertEquals("DONE", plan.getStatus());
+        verify(productionPlanRepository).saveAll(any());
+    }
+
+    @Test
+    void markOrderShippedConsumesReservedInventory() {
+        SalesOrder order = buildOrder(4L, OrderWorkflowService.STATUS_ACCEPTED, 400L, 3.0);
+        InventoryItem inventory = new InventoryItem();
+        inventory.setId(40L);
+        inventory.setQuantity(10.0);
+        inventory.setReservedQuantity(5.0);
+
+        when(salesOrderRepository.findById(4L)).thenReturn(Optional.of(order));
+        when(inventoryItemRepository.findByProductId(400L)).thenReturn(List.of(inventory));
+        when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        SalesOrder result = orderWorkflowService.markOrderShipped(4L, "warehouse@test.com", "ship");
+
+        assertEquals(OrderWorkflowService.STATUS_SHIPPED, result.getStatus());
+        assertEquals(7.0, inventory.getQuantity());
+        assertEquals(2.0, inventory.getReservedQuantity());
     }
 
     private SalesOrder buildOrder(Long id, String status, Long productId, Double qty) {

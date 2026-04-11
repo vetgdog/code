@@ -28,8 +28,12 @@ public class SecurityConfig {
                 .and()
                 .authorizeRequests()
                 .antMatchers("/api/v1/auth/**", "/ws/**").permitAll()
-                .antMatchers("/api/v1/customer/**").hasRole("CUSTOMER")
-                .antMatchers("/api/v1/procurement/**").hasRole("SUPPLIER")
+                .antMatchers("/api/v1/customer/**").authenticated()
+                .antMatchers("/api/v1/orders/**").hasAnyRole("ADMIN", "SALES_MANAGER", "WAREHOUSE_MANAGER", "PRODUCTION_MANAGER")
+                .antMatchers("/api/v1/inventory/**").hasAnyRole("ADMIN", "WAREHOUSE_MANAGER", "SALES_MANAGER")
+                .antMatchers("/api/v1/production/**").hasAnyRole("ADMIN", "PRODUCTION_MANAGER", "WAREHOUSE_MANAGER")
+                .antMatchers("/api/v1/procurement/**").hasAnyRole("SUPPLIER", "PROCUREMENT_MANAGER", "ADMIN")
+                .antMatchers("/api/v1/quality/**").hasAnyRole("QUALITY_INSPECTOR", "ADMIN")
                 .anyRequest().authenticated();
 
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

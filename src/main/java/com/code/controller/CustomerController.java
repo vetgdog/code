@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -134,9 +135,23 @@ public class CustomerController {
     }
 
     private Customer requireCurrentCustomer(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "请先登录后再下单");
+        }
         Customer customer = findCurrentCustomer(authentication);
         if (customer == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前账号未绑定客户档案，请联系管理员");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号没有客户下单权限，请重新登录客户账号后重试");
+        }
+        boolean hasCustomerRole = authentication.getAuthorities() != null && authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .map(value -> value == null ? "" : value.trim().toUpperCase(Locale.ROOT))
+                .anyMatch("ROLE_CUSTOMER"::equals);
+        // Keep compatible with old accounts that only have customer profile records.
+        if (!hasCustomerRole) {
+            User user = userRepository.findByEmail(authentication.getName().toLowerCase(Locale.ROOT)).orElse(null);
+            if (user != null && user.getRoles() != null && !user.getRoles().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号没有客户下单权限，请重新登录客户账号后重试");
+            }
         }
         return customer;
     }

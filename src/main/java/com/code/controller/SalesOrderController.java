@@ -101,6 +101,24 @@ public class SalesOrderController {
         return ResponseEntity.ok(result);
     }
 
+    @PostMapping("/{orderId}/warehouse-ship")
+    public ResponseEntity<?> warehouseShip(@PathVariable Long orderId,
+                                           @RequestBody(required = false) WorkflowActionRequest request,
+                                           Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        SalesOrder order = orderWorkflowService.markOrderShipped(orderId, authentication == null ? "" : authentication.getName(), request == null ? "" : request.getNote());
+        return ResponseEntity.ok(order);
+    }
+
+    @PostMapping("/{orderId}/production-complete")
+    public ResponseEntity<?> productionComplete(@PathVariable Long orderId,
+                                                @RequestBody(required = false) WorkflowActionRequest request,
+                                                Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_PRODUCTION_MANAGER");
+        SalesOrder order = orderWorkflowService.markProductionCompleted(orderId, authentication == null ? "" : authentication.getName(), request == null ? "" : request.getNote());
+        return ResponseEntity.ok(order);
+    }
+
     @PostMapping("/{orderId}/sales-decision")
     public ResponseEntity<?> salesDecision(@PathVariable Long orderId,
                                            @RequestParam String decision,

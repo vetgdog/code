@@ -16,12 +16,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -116,6 +118,25 @@ class CustomerControllerTest {
         assertEquals(25.0, saved.getTotalAmount());
         assertEquals("Shanghai Pudong", saved.getShippingAddress());
         assertEquals(12.5, saved.getItems().get(0).getUnitPrice());
+    }
+
+    @Test
+    void createOrderWithoutCustomerProfileThrowsForbidden() {
+        when(authentication.getName()).thenReturn("nocustomer@example.com");
+        when(customerRepository.findByEmail("nocustomer@example.com")).thenReturn(Optional.empty());
+
+        CustomerController.CustomerOrderRequest request = new CustomerController.CustomerOrderRequest();
+        request.setShippingAddress("Shanghai Pudong");
+        CustomerController.CustomerOrderItemRequest item = new CustomerController.CustomerOrderItemRequest();
+        item.setProductId(99L);
+        item.setQuantity(1.0);
+        request.setItems(List.of(item));
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> customerController.createOrder(request, authentication));
+
+        assertEquals(403, exception.getStatus().value());
+        assertEquals("当前账号没有客户下单权限，请重新登录客户账号后重试", exception.getReason());
     }
 }
 

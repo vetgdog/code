@@ -6,5 +6,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface ProductionPlanRepository extends JpaRepository<ProductionPlan, Long> {
+	java.util.List<ProductionPlan> findByPlanNoStartingWith(String prefix);
 }
 

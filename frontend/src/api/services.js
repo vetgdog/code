@@ -11,6 +11,8 @@ export const orderApi = {
   createPlan: (orderId) => client.post(`/orders/${orderId}/create-plan`),
   routeToWarehouse: (orderId, payload = {}) => client.post(`/orders/${orderId}/route-to-warehouse`, payload),
   warehouseReview: (orderId, payload = {}) => client.post(`/orders/${orderId}/warehouse-review`, payload),
+  warehouseShip: (orderId, payload = {}) => client.post(`/orders/${orderId}/warehouse-ship`, payload),
+  productionComplete: (orderId, payload = {}) => client.post(`/orders/${orderId}/production-complete`, payload),
   salesDecision: (orderId, decision, payload = {}) => client.post(`/orders/${orderId}/sales-decision?decision=${encodeURIComponent(decision)}`, payload),
   updateSalesStatus: (orderId, status) => client.post(`/orders/${orderId}/sales-status?status=${encodeURIComponent(status)}`)
 };
@@ -39,7 +41,9 @@ export const qualityApi = {
 
 export const productApi = {
   list: () => client.get('/products'),
-  create: (payload) => client.post('/products', payload)
+  create: (payload) => client.post('/products', payload),
+  update: (id, payload) => client.put(`/products/${id}`, payload),
+  remove: (id) => client.delete(`/products/${id}`)
 };
 
 export const customerApi = {
