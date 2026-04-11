@@ -5,10 +5,14 @@ import com.code.entity.OrderItem;
 import com.code.entity.ProductionPlan;
 import com.code.entity.Product;
 import com.code.entity.SalesOrder;
+import com.code.entity.StockTransaction;
+import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.SalesOrderRepository;
+import com.code.repository.StockTransactionRepository;
+import com.code.repository.WarehouseRepository;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
 @Service
 public class OrderWorkflowService {
@@ -43,6 +48,12 @@ public class OrderWorkflowService {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private StockTransactionRepository stockTransactionRepository;
+
+    @Autowired
+    private WarehouseRepository warehouseRepository;
 
     @Autowired
     private NotificationService notificationService;
@@ -77,14 +88,15 @@ public class OrderWorkflowService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "订单没有明细，无法执行库存核查");
         }
 
+        List<ProductionPlan> stockedPlans = stockInCompletedPlans(order, operator);
         List<ProductShortage> shortages = evaluateShortages(order);
         List<ProductionPlan> createdPlans = new ArrayList<>();
 
         if (shortages.isEmpty()) {
             reserveInventoryForOrder(order);
             order.setStatus(STATUS_ACCEPTED);
-            notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_STOCK_CONFIRMED", order, operator));
-            notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_READY_FOR_FULFILLMENT", order, operator));
+            notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_READY_TO_SHIP", order, operator));
+            notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_READY_TO_SHIP", order, operator));
         } else {
             order.setStatus(STATUS_IN_PRODUCTION);
             createdPlans = createProductionPlans(order, shortages);
@@ -96,6 +108,9 @@ public class OrderWorkflowService {
 
         SalesOrder savedOrder = salesOrderRepository.save(order);
         WarehouseReviewResult result = new WarehouseReviewResult(savedOrder, shortages, createdPlans, note);
+        if (!stockedPlans.isEmpty()) {
+            notificationService.broadcast("/topic/orders/warehouse", buildReviewMessage("PRODUCTION_STOCK_IN_CONFIRMED", savedOrder, List.of(), stockedPlans, operator, note));
+        }
         notificationService.broadcast("/topic/orders", new NotificationMessage("ORDER_WORKFLOW_UPDATED", "SalesOrder", savedOrder.getId(), result, LocalDateTime.now()));
         return result;
     }
@@ -117,8 +132,9 @@ public class OrderWorkflowService {
 
         order.setStatus(STATUS_PENDING_WAREHOUSE_CHECK);
         SalesOrder saved = salesOrderRepository.save(order);
-        notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_PRODUCTION_DONE", saved, operator));
-        notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_PRODUCTION_DONE", saved, operator));
+        NotificationMessage completionMessage = buildReviewMessage("ORDER_PRODUCTION_DONE", saved, List.of(), plans, operator, note);
+        notificationService.broadcast("/topic/orders/warehouse", completionMessage);
+        notificationService.broadcast("/topic/orders/sales", completionMessage);
         notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
         return saved;
     }
@@ -129,7 +145,8 @@ public class OrderWorkflowService {
         if (!STATUS_ACCEPTED.equals(safeStatus(order.getStatus()))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许仓库发货: " + order.getStatus());
         }
-        consumeInventoryForShipment(order);
+        List<StockMovement> shipments = consumeInventoryForShipment(order);
+        shipments.forEach(movement -> createStockTransaction(movement.product, movement.warehouse, movement.quantity, "OUT", "SALES_ORDER", order.getId(), order.getCreatedBy()));
         order.setStatus(STATUS_SHIPPED);
         SalesOrder saved = salesOrderRepository.save(order);
 
@@ -137,6 +154,33 @@ public class OrderWorkflowService {
         notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_SHIPPED_BY_WAREHOUSE", saved, operator));
         notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
         return saved;
+    }
+
+    private List<ProductionPlan> stockInCompletedPlans(SalesOrder order, String operator) {
+        String prefix = "PLAN-" + order.getOrderNo() + "-";
+        List<ProductionPlan> completedPlans = productionPlanRepository.findByPlanNoStartingWithAndStatus(prefix, "DONE");
+        if (completedPlans.isEmpty()) {
+            return List.of();
+        }
+        for (ProductionPlan plan : completedPlans) {
+            Product product = plan.getProduct();
+            if (product == null || product.getId() == null) {
+                continue;
+            }
+            double quantity = safeNumber(plan.getPlannedQuantity());
+            if (quantity <= 0) {
+                plan.setStatus("WAREHOUSED");
+                continue;
+            }
+            Warehouse warehouse = resolveWarehouseForProduct(product.getId());
+            InventoryItem item = findOrCreateInventoryItem(product, warehouse);
+            item.setQuantity(safeNumber(item.getQuantity()) + quantity);
+            inventoryItemRepository.save(item);
+            createStockTransaction(product, warehouse, quantity, "IN", "PRODUCTION_PLAN", plan.getId(), plan.getCreatedBy());
+            plan.setStatus("WAREHOUSED");
+        }
+        productionPlanRepository.saveAll(completedPlans);
+        return completedPlans;
     }
 
     private SalesOrder getOrder(Long orderId) {
@@ -216,7 +260,8 @@ public class OrderWorkflowService {
         return plans;
     }
 
-    private void consumeInventoryForShipment(SalesOrder order) {
+    private List<StockMovement> consumeInventoryForShipment(SalesOrder order) {
+        List<StockMovement> movements = new ArrayList<>();
         for (OrderItem item : order.getItems()) {
             Product product = item.getProduct();
             if (product == null || product.getId() == null) {
@@ -238,6 +283,9 @@ public class OrderWorkflowService {
                 inv.setReservedQuantity(reserved - consume);
                 inv.setQuantity(Math.max(0, safeNumber(inv.getQuantity()) - consume));
                 remaining -= consume;
+                if (consume > 1e-6) {
+                    movements.add(new StockMovement(product, inv.getWarehouse(), consume));
+                }
             }
 
             for (InventoryItem inv : inventoryItems) {
@@ -251,6 +299,9 @@ public class OrderWorkflowService {
                 double consume = Math.min(available, remaining);
                 inv.setQuantity(Math.max(0, safeNumber(inv.getQuantity()) - consume));
                 remaining -= consume;
+                if (consume > 1e-6) {
+                    movements.add(new StockMovement(product, inv.getWarehouse(), consume));
+                }
             }
 
             if (remaining > 1e-6) {
@@ -258,6 +309,57 @@ public class OrderWorkflowService {
             }
             inventoryItemRepository.saveAll(inventoryItems);
         }
+        return movements;
+    }
+
+    private InventoryItem findOrCreateInventoryItem(Product product, Warehouse warehouse) {
+        return inventoryItemRepository.findByProductId(product.getId()).stream()
+                .filter(item -> item.getWarehouse() != null && item.getWarehouse().getId() != null)
+                .filter(item -> item.getWarehouse().getId().equals(warehouse.getId()))
+                .findFirst()
+                .orElseGet(() -> {
+                    InventoryItem item = new InventoryItem();
+                    item.setProduct(product);
+                    item.setWarehouse(warehouse);
+                    item.setQuantity(0.0);
+                    item.setReservedQuantity(0.0);
+                    return item;
+                });
+    }
+
+    private Warehouse resolveWarehouseForProduct(Long productId) {
+        Warehouse existing = inventoryItemRepository.findByProductId(productId).stream()
+                .map(InventoryItem::getWarehouse)
+                .filter(warehouse -> warehouse != null && warehouse.getId() != null)
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            return existing;
+        }
+        return warehouseRepository.findAll().stream()
+                .sorted(Comparator.comparing(Warehouse::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "未配置仓库，无法完成库存入库"));
+    }
+
+    private void createStockTransaction(Product product,
+                                        Warehouse warehouse,
+                                        double quantity,
+                                        String type,
+                                        String relatedType,
+                                        Long relatedId,
+                                        Long createdBy) {
+        StockTransaction tx = new StockTransaction();
+        tx.setTransactionNo("ST-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
+        tx.setProduct(product);
+        tx.setWarehouse(warehouse);
+        tx.setChangeQuantity(quantity);
+        tx.setTransactionType(type);
+        tx.setRelatedType(relatedType);
+        tx.setRelatedId(relatedId);
+        tx.setCreatedBy(createdBy);
+        tx.setCreatedAt(LocalDateTime.now());
+        stockTransactionRepository.save(tx);
     }
 
     private double totalAvailableByProduct(Long productId) {
@@ -283,6 +385,18 @@ public class OrderWorkflowService {
 
     private double safeNumber(Double value) {
         return value == null ? 0.0 : value;
+    }
+
+    private static class StockMovement {
+        private final Product product;
+        private final Warehouse warehouse;
+        private final double quantity;
+
+        private StockMovement(Product product, Warehouse warehouse, double quantity) {
+            this.product = product;
+            this.warehouse = warehouse;
+            this.quantity = quantity;
+        }
     }
 
     public static class WarehouseReviewResult {

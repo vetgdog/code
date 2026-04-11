@@ -7,6 +7,8 @@ export const authApi = {
 
 export const orderApi = {
   list: () => client.get('/orders'),
+  listSalesRecords: (params = {}) => client.get('/orders/sales-records', { params }),
+  exportSalesRecords: (params = {}) => client.get('/orders/sales-records/export', { params, responseType: 'blob' }),
   create: (payload) => client.post('/orders', payload),
   createPlan: (orderId) => client.post(`/orders/${orderId}/create-plan`),
   routeToWarehouse: (orderId, payload = {}) => client.post(`/orders/${orderId}/route-to-warehouse`, payload),

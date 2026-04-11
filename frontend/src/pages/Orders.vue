@@ -89,7 +89,10 @@
             <tr class="text-left">
               <th class="pb-2">订单号</th>
               <th class="pb-2">状态</th>
-              <th class="pb-2">客户</th>
+              <th class="pb-2">产品信息</th>
+              <th class="pb-2">数量</th>
+              <th class="pb-2">下单人</th>
+              <th class="pb-2">收货地址</th>
               <th class="pb-2">总额</th>
               <th class="pb-2">操作</th>
             </tr>
@@ -98,7 +101,10 @@
             <tr v-for="order in orders" :key="order.id" class="border-t border-outline-variant/20">
               <td class="py-3 font-semibold">{{ order.orderNo }}</td>
               <td class="py-3">{{ order.status }}</td>
-              <td class="py-3">{{ order.customer?.id || '-' }}</td>
+              <td class="py-3">{{ formatProducts(order.items) }}</td>
+              <td class="py-3">{{ formatQuantity(order.items) }}</td>
+              <td class="py-3">{{ order.customer?.name || order.customer?.contact || '-' }}</td>
+              <td class="py-3">{{ order.shippingAddress || '-' }}</td>
               <td class="py-3">¥{{ formatAmount(order.totalAmount) }}</td>
               <td class="py-3">
                 <button
@@ -106,7 +112,7 @@
                   class="text-xs text-primary mr-3"
                   @click="handleSalesDecision(order.id, 'ACCEPT')"
                 >
-                  接受并通知仓库
+                  通知仓库管理员
                 </button>
                 <button
                   v-if="canSalesReview && order.status === '待销售审核'"
@@ -120,14 +126,14 @@
                   class="text-xs text-emerald-600 mr-3"
                   @click="handleWarehouseReview(order.id)"
                 >
-                  库存核查并流转
+                  核验库存
                 </button>
                 <button
                   v-if="canWarehouseReview && order.status === '已接单'"
                   class="text-xs text-emerald-700 mr-3"
                   @click="handleWarehouseShip(order.id)"
                 >
-                  仓库确认发货
+                  可发货
                 </button>
                 <button
                   v-if="canProductionUpdate && order.status === '生产中'"
@@ -143,7 +149,7 @@
                 >
                   标记已完成
                 </button>
-                <button v-if="canCreatePlan" class="text-xs text-primary" @click="handleCreatePlan(order.id)">生成生产计划</button>
+                <button v-if="canCreatePlan && order.status === '生产中'" class="text-xs text-primary" @click="handleCreatePlan(order.id)">补充生产计划</button>
                 <span v-else-if="!canSalesReview && !canWarehouseReview && !canProductionUpdate" class="text-xs text-on-surface-variant">无权限</span>
               </td>
             </tr>
@@ -153,6 +159,45 @@
         <div v-if="planError" class="mt-3 text-xs text-error">{{ planError }}</div>
         <div v-if="workflowMessage" class="mt-3 text-xs text-emerald-600">{{ workflowMessage }}</div>
         <div v-if="workflowError" class="mt-3 text-xs text-error">{{ workflowError }}</div>
+      </div>
+    </section>
+
+    <section v-if="canSalesReview" class="bg-white rounded-lg border border-outline-variant/10">
+      <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
+        <h3 class="text-sm font-bold tracking-tight">销售记录</h3>
+        <div class="flex items-center gap-2">
+          <input v-model="salesRecordFilter.startDate" type="date" class="rounded border border-outline-variant/40 px-2 py-1 text-xs" />
+          <span class="text-xs text-on-surface-variant">至</span>
+          <input v-model="salesRecordFilter.endDate" type="date" class="rounded border border-outline-variant/40 px-2 py-1 text-xs" />
+          <button class="text-xs text-primary font-semibold" @click="loadSalesRecords">筛选</button>
+          <button class="text-xs text-emerald-700 font-semibold" @click="exportSalesRecords">导出CSV</button>
+        </div>
+      </div>
+      <div class="p-5">
+        <div v-if="salesRecordError" class="mb-3 text-xs text-error">{{ salesRecordError }}</div>
+        <div v-if="salesRecords.length === 0" class="text-sm text-on-surface-variant">暂无销售记录。</div>
+        <table v-else class="w-full text-sm">
+          <thead class="text-xs text-on-surface-variant">
+            <tr class="text-left">
+              <th class="pb-2">记录号</th>
+              <th class="pb-2">订单号</th>
+              <th class="pb-2">客户</th>
+              <th class="pb-2">收货地址</th>
+              <th class="pb-2">总额</th>
+              <th class="pb-2">时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in salesRecords" :key="record.id" class="border-t border-outline-variant/20">
+              <td class="py-3 font-semibold">{{ record.recordNo }}</td>
+              <td class="py-3">{{ record.orderNo }}</td>
+              <td class="py-3">{{ record.customerName || '-' }}</td>
+              <td class="py-3">{{ record.shippingAddress || '-' }}</td>
+              <td class="py-3">¥{{ formatAmount(record.totalAmount) }}</td>
+              <td class="py-3">{{ formatDate(record.createdAt) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
   </div>
@@ -175,6 +220,12 @@ const canWarehouseReview = computed(() => auth.hasPermission('orders:warehouse-c
 const canProductionUpdate = computed(() => auth.hasPermission('production:update'));
 const canManageProducts = computed(() => auth.hasPermission('orders:create'));
 const products = ref([]);
+const salesRecords = ref([]);
+const salesRecordError = ref('');
+const salesRecordFilter = reactive({
+  startDate: '',
+  endDate: ''
+});
 const editingProductId = ref(null);
 const editProductForm = reactive({ sku: '', name: '', unit: '', unitPrice: null });
 
@@ -228,11 +279,52 @@ const loadProducts = async () => {
   }
 };
 
+const loadSalesRecords = async () => {
+  if (!canSalesReview.value) {
+    salesRecords.value = [];
+    return;
+  }
+  salesRecordError.value = '';
+  try {
+    const response = await orderApi.listSalesRecords({
+      startDate: salesRecordFilter.startDate || undefined,
+      endDate: salesRecordFilter.endDate || undefined
+    });
+    salesRecords.value = response.data || [];
+  } catch (error) {
+    salesRecords.value = [];
+    salesRecordError.value = error?.response?.data?.message || error?.response?.data || '销售记录加载失败。';
+  }
+};
+
+const exportSalesRecords = async () => {
+  salesRecordError.value = '';
+  try {
+    const response = await orderApi.exportSalesRecords({
+      startDate: salesRecordFilter.startDate || undefined,
+      endDate: salesRecordFilter.endDate || undefined
+    });
+    const blob = new Blob([response.data], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const dateTag = new Date().toISOString().slice(0, 10);
+    anchor.href = url;
+    anchor.download = `sales-records-${dateTag}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    salesRecordError.value = error?.response?.data?.message || error?.response?.data || '销售记录导出失败。';
+  }
+};
+
 onMounted(async () => {
   await loadOrders();
   if (canManageProducts.value) {
     await loadProducts();
   }
+  await loadSalesRecords();
 });
 
 watch(
@@ -240,6 +332,7 @@ watch(
   (message) => {
     if (message?.topic && message.topic.startsWith('/topic/orders')) {
       loadOrders();
+      loadSalesRecords();
     }
   }
 );
@@ -298,7 +391,7 @@ const handleSalesDecision = async (orderId, decision) => {
     await orderApi.salesDecision(orderId, decision, {});
     workflowMessage.value = decision === 'REJECT'
       ? `订单 ${orderId} 已拒绝。`
-      : `订单 ${orderId} 已通过销售审核并通知仓库核查。`;
+      : `订单 ${orderId} 订单信息已发送给仓库管理员。`;
     await loadOrders();
   } catch (error) {
     workflowError.value = error?.response?.data?.message || error?.response?.data || '操作失败。';
@@ -322,7 +415,7 @@ const handleWarehouseShip = async (orderId) => {
   workflowError.value = '';
   try {
     await orderApi.warehouseShip(orderId, {});
-    workflowMessage.value = `订单 ${orderId} 已由仓库发货并通知销售。`;
+    workflowMessage.value = `订单 ${orderId} 订单已发货，并已通知销售管理员。`;
     await loadOrders();
   } catch (error) {
     workflowError.value = error?.response?.data?.message || error?.response?.data || '发货失败。';
@@ -348,8 +441,8 @@ const handleWarehouseReview = async (orderId) => {
     const response = await orderApi.warehouseReview(orderId, {});
     const shortageCount = response?.data?.shortages?.length || 0;
     workflowMessage.value = shortageCount > 0
-      ? `订单 ${orderId} 库存不足，已自动通知生产并生成计划。`
-      : `订单 ${orderId} 库存充足，已流转为已接单。`;
+      ? `生产订单已成功发送至生产管理员。`
+      : `订单 ${orderId} 库存核验通过，可执行发货。`;
     await loadOrders();
   } catch (error) {
     workflowError.value = error?.response?.data?.message || error?.response?.data || '库存核查失败。';
@@ -424,5 +517,8 @@ const handleDeleteProduct = async (id) => {
 };
 
 const formatAmount = (value) => (value || 0).toFixed(2);
+const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
+const formatProducts = (items) => (items || []).map((item) => item.product?.name || `产品#${item.product?.id || '-'}`).join('，') || '-';
+const formatQuantity = (items) => (items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 </script>
 

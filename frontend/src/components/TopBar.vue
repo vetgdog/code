@@ -36,8 +36,8 @@
         <div class="max-h-72 overflow-auto p-2 space-y-1">
           <div v-if="!realtime.state.events.length" class="text-xs text-slate-500 px-2 py-3">暂无消息</div>
           <div v-for="event in latestEvents" :key="`${event.topic}-${event.timestamp}-${event.entityId || 'none'}`" class="px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-xs">
-            <p class="font-semibold">{{ event.messageType || 'MESSAGE' }} · {{ event.entity || 'Event' }}</p>
-            <p class="text-slate-500 mt-1">{{ event.topic }} {{ event.entityId ? `#${event.entityId}` : '' }}</p>
+            <p class="font-semibold">{{ formatNotificationTitle(event) }}</p>
+            <p class="text-slate-500 mt-1">{{ formatNotificationMeta(event) }}</p>
             <p class="text-slate-500 mt-1">{{ formatDate(event.timestamp) }}</p>
           </div>
         </div>
@@ -67,6 +67,67 @@ const toggleNotifications = () => {
   if (showNotifications.value) {
     realtime.markAllRead();
   }
+};
+
+const extractOrder = (event) => {
+  if (!event?.payload) {
+    return null;
+  }
+  if (event.payload.orderNo) {
+    return event.payload;
+  }
+  if (event.payload.order?.orderNo) {
+    return event.payload.order;
+  }
+  return null;
+};
+
+const extractPlans = (event) => {
+  if (!event?.payload) {
+    return [];
+  }
+  if (Array.isArray(event.payload.productionPlans)) {
+    return event.payload.productionPlans;
+  }
+  return [];
+};
+
+const formatNotificationTitle = (event) => {
+  const order = extractOrder(event);
+  const orderNo = order?.orderNo || (event?.entityId ? `#${event.entityId}` : '');
+  const planNo = extractPlans(event)[0]?.planNo;
+
+  switch (event?.messageType) {
+    case 'ORDER_SUBMITTED':
+      return `订单 ${orderNo} 已成功下单，请耐心等候。`;
+    case 'ORDER_TO_WAREHOUSE':
+    case 'ORDER_SALES_ROUTED':
+      return `订单 ${orderNo} 订单信息已发送给仓库管理员。`;
+    case 'WAREHOUSE_ACTION_REQUIRED':
+      return `订单 ${orderNo} 待仓库管理员处理。`;
+    case 'ORDER_SHIPPED_BY_WAREHOUSE':
+      return `订单 ${orderNo} 订单已发货。`;
+    case 'ORDER_PRODUCTION_REQUIRED':
+      return `${planNo || '生产计划'} 已成功发送至生产管理员。`;
+    case 'ORDER_PRODUCTION_DONE':
+      return `${planNo || '生产订单'} 已完成，请仓库核验入库。`;
+    case 'PRODUCTION_STOCK_IN_CONFIRMED':
+      return `${planNo || '生产订单'} 已完成核验并自动入库。`;
+    case 'ORDER_READY_TO_SHIP':
+      return `订单 ${orderNo} 库存已满足，可执行发货。`;
+    case 'SALES_RECORD_CREATED':
+      return `订单 ${orderNo} 已归档为销售记录。`;
+    default:
+      return `${event?.messageType || '系统消息'} · ${event?.entity || 'Event'}`;
+  }
+};
+
+const formatNotificationMeta = (event) => {
+  const order = extractOrder(event);
+  if (order?.shippingAddress) {
+    return `收货地址：${order.shippingAddress}`;
+  }
+  return `${event.topic} ${event.entityId ? `#${event.entityId}` : ''}`;
 };
 
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');

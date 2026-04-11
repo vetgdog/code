@@ -9,6 +9,8 @@ import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.SalesOrderRepository;
+import com.code.repository.StockTransactionRepository;
+import com.code.repository.WarehouseRepository;
 import com.code.websocket.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,6 +46,12 @@ class OrderWorkflowServiceTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private StockTransactionRepository stockTransactionRepository;
+
+    @Mock
+    private WarehouseRepository warehouseRepository;
 
     @Mock
     private NotificationService notificationService;

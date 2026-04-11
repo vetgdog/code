@@ -119,6 +119,20 @@ CREATE TABLE IF NOT EXISTS `sales_order` (
   -- 外键约束：fk_salesorder_customer (customer_id -> customers.id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 销售记录表
+CREATE TABLE IF NOT EXISTS `sales_record` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `record_no` VARCHAR(100) NOT NULL UNIQUE,
+  `order_id` BIGINT NOT NULL,
+  `order_no` VARCHAR(100) NOT NULL,
+  `total_amount` DECIMAL(18,2) DEFAULT 0,
+  `customer_name` VARCHAR(200),
+  `shipping_address` VARCHAR(500),
+  `status` VARCHAR(50),
+  `created_by` BIGINT,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- 订单子项表
 CREATE TABLE IF NOT EXISTS `order_item` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY, -- 订单子项ID

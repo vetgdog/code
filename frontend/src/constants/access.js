@@ -48,7 +48,7 @@ const ROLE_CONFIG = {
   ROLE_SALES_MANAGER: {
     defaultRouteName: 'Orders',
     routeNames: ['Dashboard', 'Orders', 'Customer'],
-    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:plan', 'orders:review', 'customer:view']
+    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:review', 'customer:view']
   },
   ROLE_PROCUREMENT_MANAGER: {
     defaultRouteName: 'Procurement',

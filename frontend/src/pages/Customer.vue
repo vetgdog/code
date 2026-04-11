@@ -84,6 +84,7 @@
               <th class="pb-2">订单号</th>
               <th class="pb-2">状态</th>
               <th class="pb-2">总额</th>
+              <th class="pb-2">收货地址</th>
               <th class="pb-2">下单时间</th>
               <th class="pb-2">查看</th>
             </tr>
@@ -93,6 +94,7 @@
               <td class="py-3 font-semibold">{{ order.orderNo }}</td>
               <td class="py-3">{{ order.status }}</td>
               <td class="py-3">¥{{ formatAmount(order.totalAmount) }}</td>
+              <td class="py-3">{{ order.shippingAddress || '-' }}</td>
               <td class="py-3">{{ formatDate(order.orderDate || order.createdAt) }}</td>
               <td class="py-3">
                 <button class="text-xs text-primary" @click="loadOrderDetail(order.id)">详情</button>
@@ -109,6 +111,7 @@
         <div>订单号: {{ selectedOrder.orderNo }}</div>
         <div>状态: {{ selectedOrder.status }}</div>
         <div>总额: ¥{{ formatAmount(selectedOrder.totalAmount) }}</div>
+        <div>收货地址: {{ selectedOrder.shippingAddress || '-' }}</div>
       </div>
       <div class="mt-4">
         <h5 class="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">明细</h5>
