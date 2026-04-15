@@ -5,13 +5,14 @@ import com.code.entity.InventoryItem;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseOrderItem;
-import com.code.entity.Supplier;
+import com.code.entity.Role;
+import com.code.entity.User;
 import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseOrderRepository;
 import com.code.repository.StockTransactionRepository;
-import com.code.repository.SupplierRepository;
+import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
 import com.code.websocket.NotificationService;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,7 +46,7 @@ class ProcurementWorkflowServiceTest {
     private ProductRepository productRepository;
 
     @Mock
-    private SupplierRepository supplierRepository;
+    private UserRepository userRepository;
 
     @Mock
     private InventoryItemRepository inventoryItemRepository;
@@ -60,10 +62,7 @@ class ProcurementWorkflowServiceTest {
 
     @Test
     void createPurchaseOrderSetsWaitingSupplierAndNotifiesSupplier() {
-        Supplier supplier = new Supplier();
-        supplier.setId(1L);
-        supplier.setEmail("supplier@example.com");
-        supplier.setName("供应商A");
+        User supplier = supplierUser(1L, "supplier01", "供应商A", "supplier@example.com");
 
         Product material = new Product();
         material.setId(10L);
@@ -71,6 +70,7 @@ class ProcurementWorkflowServiceTest {
         material.setSku("RM-001");
         material.setProductType("RAW_MATERIAL");
         material.setUnitPrice(5.5);
+        material.setPreferredSupplier("供应商A");
 
         PurchaseOrderItem item = new PurchaseOrderItem();
         item.setProduct(material);
@@ -81,7 +81,7 @@ class ProcurementWorkflowServiceTest {
         order.setSupplier(supplier);
         order.setItems(List.of(item));
 
-        when(supplierRepository.findById(1L)).thenReturn(Optional.of(supplier));
+        when(userRepository.findById(1L)).thenReturn(Optional.of(supplier));
         when(productRepository.findById(10L)).thenReturn(Optional.of(material));
         when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -96,9 +96,7 @@ class ProcurementWorkflowServiceTest {
 
     @Test
     void supplierShipUpdatesStatusAndNotifiesProcurement() {
-        Supplier supplier = new Supplier();
-        supplier.setId(2L);
-        supplier.setEmail("supplier@example.com");
+        User supplier = supplierUser(2L, "supplier02", "供应商乙", "supplier@example.com");
 
         PurchaseOrder order = new PurchaseOrder();
         order.setId(2L);
@@ -117,9 +115,7 @@ class ProcurementWorkflowServiceTest {
 
     @Test
     void warehouseReceiveStocksInItemsAndMarksWarehoused() {
-        Supplier supplier = new Supplier();
-        supplier.setId(3L);
-        supplier.setEmail("supplier@example.com");
+        User supplier = supplierUser(3L, "supplier03", "供应商丙", "supplier@example.com");
 
         Product material = new Product();
         material.setId(30L);
@@ -159,11 +155,7 @@ class ProcurementWorkflowServiceTest {
 
     @Test
     void buildSupplierDashboardReturnsSupplierSpecificTodosAndMaterials() {
-        Supplier supplier = new Supplier();
-        supplier.setId(5L);
-        supplier.setName("供应商甲");
-        supplier.setCode("SUP-A");
-        supplier.setEmail("supplier@example.com");
+        User supplier = supplierUser(5L, "SUP-A", "供应商甲", "supplier@example.com");
 
         Product preferredMaterial = new Product();
         preferredMaterial.setId(50L);
@@ -193,7 +185,7 @@ class ProcurementWorkflowServiceTest {
         acceptedItem.setQuantity(3.0);
         accepted.setItems(List.of(acceptedItem));
 
-        when(supplierRepository.findByEmailIgnoreCase("supplier@example.com")).thenReturn(Optional.of(supplier));
+        when(userRepository.findByEmailIgnoreCase("supplier@example.com")).thenReturn(Optional.of(supplier));
         when(purchaseOrderRepository.findBySupplierIdOrderByOrderDateDesc(5L)).thenReturn(List.of(waiting, accepted));
         when(productRepository.findAll()).thenReturn(List.of(preferredMaterial));
 
@@ -205,6 +197,63 @@ class ProcurementWorkflowServiceTest {
         assertEquals(2, result.getTotalOpenOrders());
         assertFalse(result.getRecommendedMaterials().isEmpty());
         assertFalse(result.getTodoOrders().isEmpty());
+    }
+
+    @Test
+    void createPurchaseOrderRejectsSupplierMismatchWithMaterialArchive() {
+        User supplier = supplierUser(6L, "SUP-A", "供应商A", "supplier-a@example.com");
+
+        Product material = new Product();
+        material.setId(60L);
+        material.setName("不锈钢卷");
+        material.setSku("RM-060");
+        material.setProductType("RAW_MATERIAL");
+        material.setPreferredSupplier("供应商B");
+
+        PurchaseOrderItem item = new PurchaseOrderItem();
+        item.setProduct(material);
+        item.setQuantity(3.0);
+        item.setUnitPrice(10.0);
+
+        PurchaseOrder order = new PurchaseOrder();
+        order.setSupplier(supplier);
+        order.setItems(List.of(item));
+
+        when(userRepository.findById(6L)).thenReturn(Optional.of(supplier));
+        when(productRepository.findById(60L)).thenReturn(Optional.of(material));
+
+        org.springframework.web.server.ResponseStatusException exception = assertThrows(
+                org.springframework.web.server.ResponseStatusException.class,
+                () -> procurementWorkflowService.createPurchaseOrder(order, "proc@test.com")
+        );
+
+        assertEquals(400, exception.getStatus().value());
+        assertEquals("原材料 不锈钢卷 与所选供应商不匹配", exception.getReason());
+    }
+
+    @Test
+    void resolveSupplierAccountReturnsSupplierUserAccount() {
+        User user = supplierUser(7L, "legacy-supplier", "历史供应商", "legacy-supplier@example.com");
+
+        when(userRepository.findByEmailIgnoreCase("legacy-supplier@example.com")).thenReturn(Optional.of(user));
+
+        User result = procurementWorkflowService.resolveSupplierAccount("legacy-supplier@example.com");
+
+        assertEquals("legacy-supplier@example.com", result.getEmail());
+        assertEquals("历史供应商", result.getName());
+    }
+
+    private User supplierUser(Long id, String username, String fullName, String email) {
+        Role supplierRole = new Role();
+        supplierRole.setName("ROLE_SUPPLIER");
+
+        User user = new User();
+        user.setId(id);
+        user.setUsername(username);
+        user.setFullName(fullName);
+        user.setEmail(email);
+        user.setRoles(java.util.Set.of(supplierRole));
+        return user;
     }
 }
 

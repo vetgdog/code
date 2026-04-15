@@ -102,8 +102,8 @@
             <button class="text-xs text-on-surface-variant" @click="resetRawMaterialFilter">重置</button>
           </div>
         </div>
-        <div v-if="rawMaterialError" class="mb-3 text-xs text-error">{{ rawMaterialError }}</div>
-        <div v-if="rawMaterials.length === 0" class="text-sm text-on-surface-variant">{{ isSupplierRole ? '暂无当前供应商原材料。' : '暂无原材料记录。' }}</div>
+        <div v-if="showRawMaterialError" class="mb-3 text-xs text-error">{{ rawMaterialError }}</div>
+        <div v-if="rawMaterials.length === 0" class="text-sm text-on-surface-variant">{{ rawMaterialEmptyText }}</div>
         <table v-else class="w-full text-sm">
           <thead class="text-xs text-on-surface-variant">
             <tr class="text-left">
@@ -164,13 +164,15 @@
     <section v-if="canManageRawMaterials" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <h3 class="text-sm font-bold tracking-tight">新增原材料</h3>
       <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" @submit.prevent="handleCreateRawMaterial">
-        <input v-model="rawMaterialForm.sku" placeholder="SKU" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <div class="rounded border border-dashed border-outline-variant/40 px-3 py-2 text-sm text-on-surface-variant bg-slate-50">
+          原材料编号将由系统自动生成
+        </div>
         <input v-model="rawMaterialForm.name" placeholder="原材料名称" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
         <input v-model="rawMaterialForm.materialCategory" placeholder="原材料分类" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
         <input v-model="rawMaterialForm.specification" placeholder="规格型号" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
         <input v-model="rawMaterialForm.unit" placeholder="单位" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
         <input v-model.number="rawMaterialForm.unitPrice" type="number" min="0" step="0.01" placeholder="默认单价" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <input v-model="rawMaterialForm.preferredSupplier" placeholder="首选供应商" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="rawMaterialForm.preferredSupplier" :placeholder="isSupplierRole ? '当前供应商将自动绑定' : '首选供应商'" :readonly="isSupplierRole" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" :class="isSupplierRole ? 'bg-slate-50 text-on-surface-variant' : ''" />
         <input v-model="rawMaterialForm.origin" placeholder="原产地" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
         <input v-model.number="rawMaterialForm.safetyStock" type="number" min="0" step="0.01" placeholder="安全库存" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
         <input v-model.number="rawMaterialForm.leadTimeDays" type="number" min="0" step="1" placeholder="供货周期（天）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
@@ -230,8 +232,8 @@
           采购单号将于提交后自动生成
         </div>
         <select v-model="orderForm.supplierId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
-          <option value="">请选择供应商</option>
-          <option v-for="supplier in suppliers" :key="supplier.id" :value="String(supplier.id)">{{ supplier.name }}（{{ supplier.code }}）</option>
+          <option value="">{{ availableSuppliers.length ? '请选择供应商' : '暂无可选供应商' }}</option>
+          <option v-for="supplier in availableSuppliers" :key="supplier.id" :value="String(supplier.id)">{{ supplier.name }}（{{ supplier.code }}）</option>
         </select>
         <input v-model.number="orderForm.createdBy" type="number" min="0" placeholder="创建人ID（可选）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
         <input v-model="orderForm.procurementNote" placeholder="采购备注（可选）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
@@ -251,10 +253,11 @@
         <p class="text-xs text-on-surface-variant">当前采购明细：</p>
         <ul class="text-xs mt-2 space-y-1">
           <li v-for="(item, index) in formItems" :key="`${item.product.id}-${index}`">
-            {{ item.product.name }}（{{ item.product.sku }}） | 数量 {{ formatNumber(item.quantity) }} | 单价 ¥{{ formatAmount(item.unitPrice) }}
+            {{ item.product.name }}（{{ item.product.sku }}） | 供应商 {{ item.preferredSupplier || '-' }} | 数量 {{ formatNumber(item.quantity) }} | 单价 ¥{{ formatAmount(item.unitPrice) }}
           </li>
         </ul>
       </div>
+      <div v-if="!availableSuppliers.length" class="mt-3 text-xs text-amber-600">{{ supplierHint }}</div>
       <div v-if="orderMessage" class="mt-3 text-xs text-emerald-600">{{ orderMessage }}</div>
       <div v-if="orderError" class="mt-3 text-xs text-error">{{ orderError }}</div>
     </section>
@@ -284,8 +287,8 @@
             <button class="text-xs text-on-surface-variant" @click="resetOrderFilter">重置</button>
           </div>
         </div>
-        <div v-if="purchaseError" class="mb-3 text-xs text-error">{{ purchaseError }}</div>
-        <div v-if="purchaseOrders.length === 0" class="text-sm text-on-surface-variant">{{ isSupplierRole ? '暂无供应记录。' : '暂无采购记录。' }}</div>
+        <div v-if="showPurchaseError" class="mb-3 text-xs text-error">{{ purchaseError }}</div>
+        <div v-if="purchaseOrders.length === 0" class="text-sm text-on-surface-variant">{{ purchaseOrderEmptyText }}</div>
         <table v-else class="w-full text-sm">
           <thead class="text-xs text-on-surface-variant">
             <tr class="text-left">
@@ -368,15 +371,19 @@ const canManageRawMaterials = computed(() => auth.hasPermission('procurement:raw
 const canSupplierAct = computed(() => auth.hasPermission('procurement:supplier-act'));
 const canNotifyWarehouse = computed(() => auth.hasPermission('procurement:notify-warehouse'));
 const canExportProcurement = computed(() => auth.hasPermission('procurement:view'));
+const rawMaterialEmptyText = computed(() => (isSupplierRole.value ? '当前没有原材料。' : '当前没有原材料记录。'));
+const purchaseOrderEmptyText = computed(() => (isSupplierRole.value ? '当前没有供应记录。' : '当前没有采购记录。'));
+const showRawMaterialError = computed(() => Boolean(rawMaterialError.value) && !isSupplierRole.value);
+const showPurchaseError = computed(() => Boolean(purchaseError.value) && !isSupplierRole.value);
 
 const templateColumns = [
-  { name: 'sku', label: '必填，原材料唯一编码' },
+  { name: 'sku', label: '选填，留空时由系统自动生成原材料编号；如需按编号更新原材料，可填写已有编号' },
   { name: 'name', label: '必填，原材料名称' },
   { name: 'materialCategory', label: '可选，原材料分类，如钢材/涂料/辅料' },
   { name: 'specification', label: '可选，规格型号' },
   { name: 'unit', label: '可选，单位，如 kg / m / 件' },
   { name: 'unitPrice', label: '可选，默认采购单价' },
-  { name: 'preferredSupplier', label: '可选，首选供应商名称' },
+  { name: 'preferredSupplier', label: '可选，首选供应商名称；供应商账号导入时会自动绑定为当前供应商' },
   { name: 'origin', label: '可选，原产地或供货地区' },
   { name: 'safetyStock', label: '可选，安全库存' },
   { name: 'leadTimeDays', label: '可选，供货周期（天）' },
@@ -415,7 +422,6 @@ const rawMaterialFilter = reactive({ keyword: '', startDate: '', endDate: '' });
 const orderFilter = reactive({ keyword: '', status: '', startDate: '', endDate: '' });
 
 const rawMaterialForm = reactive({
-  sku: '',
   name: '',
   materialCategory: '',
   specification: '',
@@ -441,6 +447,60 @@ const itemForm = reactive({
 });
 
 const formItems = ref([]);
+
+const normalizeText = (value) => String(value || '').trim().toLowerCase();
+
+const materialMatchesSupplier = (material, supplier) => {
+  const preferredSupplier = normalizeText(material?.preferredSupplier);
+  if (!preferredSupplier) {
+    return false;
+  }
+  return [supplier?.name, supplier?.code, supplier?.email]
+    .map(normalizeText)
+    .filter(Boolean)
+    .some((token) => preferredSupplier.includes(token));
+};
+
+const procurementScopeMaterials = computed(() => {
+  const scoped = formItems.value.map((item) => ({ preferredSupplier: item.preferredSupplier }));
+  const currentMaterial = rawMaterials.value.find((item) => String(item.id) === String(itemForm.productId));
+  if (currentMaterial) {
+    scoped.push(currentMaterial);
+  }
+  return scoped;
+});
+
+const availableSuppliers = computed(() => {
+  if (!suppliers.value.length) {
+    return [];
+  }
+  if (!procurementScopeMaterials.value.length) {
+    return suppliers.value;
+  }
+
+  let intersection = new Set(suppliers.value.map((supplier) => String(supplier.id)));
+  for (const material of procurementScopeMaterials.value) {
+    const matchedIds = new Set(
+      suppliers.value
+        .filter((supplier) => materialMatchesSupplier(material, supplier))
+        .map((supplier) => String(supplier.id))
+    );
+    intersection = new Set([...intersection].filter((id) => matchedIds.has(id)));
+  }
+
+  return suppliers.value.filter((supplier) => intersection.has(String(supplier.id)));
+});
+
+const supplierHint = computed(() => {
+  const currentMaterial = rawMaterials.value.find((item) => String(item.id) === String(itemForm.productId));
+  if (currentMaterial && !normalizeText(currentMaterial.preferredSupplier)) {
+    return '当前原材料未维护供应商，暂时无法加入采购单。';
+  }
+  if (procurementScopeMaterials.value.length && !availableSuppliers.value.length) {
+    return '当前采购明细没有共同供应商，请调整原材料后再下单。';
+  }
+  return '';
+});
 
 const loadDashboard = async () => {
   if (!isSupplierRole.value) {
@@ -562,7 +622,6 @@ const resetOrderFilter = async () => {
 };
 
 const resetRawMaterialForm = () => {
-  rawMaterialForm.sku = '';
   rawMaterialForm.name = '';
   rawMaterialForm.materialCategory = '';
   rawMaterialForm.specification = '';
@@ -590,7 +649,6 @@ const handleCreateRawMaterial = async () => {
   rawMaterialCreateError.value = '';
   try {
     const response = await procurementApi.createRawMaterial({
-      sku: rawMaterialForm.sku,
       name: rawMaterialForm.name,
       materialCategory: rawMaterialForm.materialCategory || null,
       specification: rawMaterialForm.specification || null,
@@ -604,22 +662,39 @@ const handleCreateRawMaterial = async () => {
     });
     rawMaterialMessage.value = '原材料保存成功。';
     resetRawMaterialForm();
-    await loadRawMaterials();
+    await Promise.all([loadRawMaterials(), loadSuppliers()]);
     if (response?.data?.id) {
       await selectRawMaterial(response.data.id);
     }
   } catch (error) {
-    rawMaterialCreateError.value = error?.response?.data?.message || error?.response?.data || '原材料保存失败。';
+    rawMaterialCreateError.value = '原材料保存失败。';
   }
 };
 
 const addItem = () => {
+  orderError.value = '';
   const material = rawMaterials.value.find((item) => String(item.id) === String(itemForm.productId));
   if (!material || !itemForm.quantity || itemForm.quantity <= 0 || itemForm.unitPrice == null || itemForm.unitPrice < 0) {
     return;
   }
+  if (!normalizeText(material.preferredSupplier)) {
+    orderError.value = '当前原材料未维护供应商，无法加入采购单。';
+    return;
+  }
+  if (!availableSuppliers.value.length) {
+    orderError.value = '当前采购明细没有共同供应商，请调整原材料。';
+    return;
+  }
+  if (!orderForm.supplierId && availableSuppliers.value.length === 1) {
+    orderForm.supplierId = String(availableSuppliers.value[0].id);
+  }
+  if (orderForm.supplierId && !availableSuppliers.value.some((supplier) => String(supplier.id) === String(orderForm.supplierId))) {
+    orderError.value = '所选供应商与当前原材料不匹配，请重新选择。';
+    return;
+  }
   formItems.value.push({
     product: { id: material.id, name: material.name, sku: material.sku },
+    preferredSupplier: material.preferredSupplier || '',
     quantity: Number(itemForm.quantity),
     unitPrice: Number(itemForm.unitPrice)
   });
@@ -633,6 +708,10 @@ const handleCreateOrder = async () => {
   orderError.value = '';
   if (!formItems.value.length) {
     orderError.value = '请至少添加一条采购明细。';
+    return;
+  }
+  if (!orderForm.supplierId) {
+    orderError.value = availableSuppliers.value.length ? '请选择供应商。' : '当前没有可匹配的供应商，请先调整原材料。';
     return;
   }
   try {
@@ -731,7 +810,7 @@ const handleImportRawMaterials = async () => {
     const result = response.data || {};
     importMessage.value = `导入完成：新增 ${result.createdCount || 0} 条，更新 ${result.updatedCount || 0} 条。`;
     importErrors.value = result.errors || [];
-    await loadRawMaterials();
+    await Promise.all([loadRawMaterials(), loadSuppliers()]);
     await loadDashboard();
   } catch (error) {
     importError.value = error?.response?.data?.message || error?.response?.data || 'Excel 导入失败。';
@@ -755,6 +834,33 @@ watch(
       if (selectedMaterial.value?.id) {
         selectRawMaterial(selectedMaterial.value.id);
       }
+    }
+  }
+);
+
+watch(
+  availableSuppliers,
+  (nextSuppliers) => {
+    if (!orderForm.supplierId) {
+      if (nextSuppliers.length === 1) {
+        orderForm.supplierId = String(nextSuppliers[0].id);
+      }
+      return;
+    }
+    const stillAvailable = nextSuppliers.some((supplier) => String(supplier.id) === String(orderForm.supplierId));
+    if (!stillAvailable) {
+      orderForm.supplierId = nextSuppliers.length === 1 ? String(nextSuppliers[0].id) : '';
+    }
+  },
+  { immediate: true }
+);
+
+watch(
+  () => itemForm.productId,
+  (productId) => {
+    const material = rawMaterials.value.find((item) => String(item.id) === String(productId));
+    if (material) {
+      itemForm.unitPrice = Number(material.unitPrice || 0);
     }
   }
 );

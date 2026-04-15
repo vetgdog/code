@@ -1,5 +1,6 @@
 package com.code.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
 
 import javax.persistence.*;
@@ -18,6 +19,7 @@ public class User {
     private String username;
 
     @Column(nullable = false)
+    @JsonIgnore
     private String password;
 
     private String fullName;
@@ -30,9 +32,25 @@ public class User {
     @JoinTable(name = "user_roles",
             joinColumns = @JoinColumn(name = "user_id"),
             inverseJoinColumns = @JoinColumn(name = "role_id"))
+    @JsonIgnore
     private Set<Role> roles;
 
     private LocalDateTime createdAt = LocalDateTime.now();
     private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Transient
+    public String getName() {
+        return fullName == null || fullName.isBlank() ? username : fullName;
+    }
+
+    @Transient
+    public String getCode() {
+        return username == null || username.isBlank() ? (email == null ? "" : email) : username;
+    }
+
+    @Transient
+    public String getContact() {
+        return getName();
+    }
 }
 

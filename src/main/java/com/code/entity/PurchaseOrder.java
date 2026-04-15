@@ -19,7 +19,7 @@ public class PurchaseOrder {
 
     @ManyToOne
     @JoinColumn(name = "supplier_id")
-    private Supplier supplier;
+    private User supplier;
 
     private LocalDateTime orderDate = LocalDateTime.now();
     private String status = "CREATED";

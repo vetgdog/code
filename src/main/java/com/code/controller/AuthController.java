@@ -105,7 +105,6 @@ public class AuthController {
             customer.setEmail(email);
             customerRepository.save(customer);
         }
-
         try {
             userRepository.save(u);
             return ResponseEntity.ok("ok");
@@ -156,4 +155,5 @@ public class AuthController {
         } while (customerRepository.existsByCode(code));
         return code;
     }
+
 }

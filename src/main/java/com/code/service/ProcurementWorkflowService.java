@@ -6,14 +6,14 @@ import com.code.entity.InventoryItem;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseOrderItem;
-import com.code.entity.Supplier;
 import com.code.entity.StockTransaction;
+import com.code.entity.User;
 import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseOrderRepository;
 import com.code.repository.StockTransactionRepository;
-import com.code.repository.SupplierRepository;
+import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
@@ -31,8 +31,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.UUID;
 
 @Service
 public class ProcurementWorkflowService {
@@ -53,7 +53,7 @@ public class ProcurementWorkflowService {
     private ProductRepository productRepository;
 
     @Autowired
-    private SupplierRepository supplierRepository;
+    private UserRepository userRepository;
 
     @Autowired
     private InventoryItemRepository inventoryItemRepository;
@@ -75,7 +75,8 @@ public class ProcurementWorkflowService {
         if (purchaseOrder.getSupplier() == null || purchaseOrder.getSupplier().getId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择供应商");
         }
-        Supplier supplier = supplierRepository.findById(purchaseOrder.getSupplier().getId())
+        User supplier = userRepository.findById(purchaseOrder.getSupplier().getId())
+                .filter(this::isSupplierUser)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "供应商不存在: " + purchaseOrder.getSupplier().getId()));
         if (purchaseOrder.getItems() == null || purchaseOrder.getItems().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请至少添加一条采购明细");
@@ -92,6 +93,12 @@ public class ProcurementWorkflowService {
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "原材料不存在: " + rawItem.getProduct().getId()));
             if (!"RAW_MATERIAL".equalsIgnoreCase(product.getProductType())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持采购原材料: " + product.getName());
+            }
+            if (!hasMaintainedSupplier(product)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "原材料未维护供应商信息: " + product.getName());
+            }
+            if (!isSupplierRelatedMaterial(product, supplier)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "原材料 " + product.getName() + " 与所选供应商不匹配");
             }
             double quantity = rawItem.getQuantity() == null ? 0.0 : rawItem.getQuantity();
             if (quantity <= 0) {
@@ -235,14 +242,14 @@ public class ProcurementWorkflowService {
     public List<PurchaseOrder> listOrders(String role, String email) {
         String normalizedRole = safe(role).toUpperCase(Locale.ROOT);
         if (normalizedRole.contains("SUPPLIER")) {
-            Supplier supplier = resolveSupplierByEmail(email);
+            User supplier = resolveSupplierAccount(email);
             return purchaseOrderRepository.findBySupplierIdOrderByOrderDateDesc(supplier.getId());
         }
         return purchaseOrderRepository.findAllByOrderByOrderDateDesc();
     }
 
     public SupplierDashboardDto buildSupplierDashboard(String email) {
-        Supplier supplier = resolveSupplierByEmail(email);
+        User supplier = resolveSupplierAccount(email);
         List<PurchaseOrder> orders = purchaseOrderRepository.findBySupplierIdOrderByOrderDateDesc(supplier.getId());
 
         int pendingConfirmCount = (int) orders.stream().filter(order -> STATUS_WAITING_SUPPLIER.equals(safe(order.getStatus()))).count();
@@ -269,7 +276,7 @@ public class ProcurementWorkflowService {
                 .collect(Collectors.toList());
 
         return new SupplierDashboardDto(
-                supplier.getName(),
+                supplierDisplayName(supplier),
                 pendingConfirmCount,
                 acceptedPendingShipCount,
                 shippedCount,
@@ -349,9 +356,14 @@ public class ProcurementWorkflowService {
         throw new ResponseStatusException(HttpStatus.CONFLICT, "采购单号生成失败，请稍后重试");
     }
 
-    private Supplier resolveSupplierByEmail(String email) {
-        return supplierRepository.findByEmailIgnoreCase(safe(email).toLowerCase(Locale.ROOT))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号未绑定供应商信息"));
+    public User resolveSupplierAccount(String email) {
+        String normalizedEmail = safe(email).toLowerCase(Locale.ROOT);
+        if (normalizedEmail.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号未绑定供应商信息");
+        }
+        return userRepository.findByEmailIgnoreCase(normalizedEmail)
+                .filter(this::isSupplierUser)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号不是供应商账号"));
     }
 
     private void notifyProcurementManager(PurchaseOrder order, String messageType, String operator, String title, String note) {
@@ -371,7 +383,7 @@ public class ProcurementWorkflowService {
         return new NotificationMessage(type, "PurchaseOrder", order.getId(), event, LocalDateTime.now());
     }
 
-    private String resolveSupplierTopic(Supplier supplier) {
+    private String resolveSupplierTopic(User supplier) {
         if (supplier == null || supplier.getEmail() == null) {
             return "/topic/procurement/supplier";
         }
@@ -391,7 +403,7 @@ public class ProcurementWorkflowService {
                 .collect(Collectors.joining("；"));
     }
 
-    private List<SupplierDashboardDto.RecommendedMaterial> resolveRecommendedMaterials(Supplier supplier, List<PurchaseOrder> orders) {
+    private List<SupplierDashboardDto.RecommendedMaterial> resolveRecommendedMaterials(User supplier, List<PurchaseOrder> orders) {
         Map<Long, Product> recommended = new LinkedHashMap<>();
 
         productRepository.findAll().stream()
@@ -423,17 +435,56 @@ public class ProcurementWorkflowService {
                 .collect(Collectors.toList());
     }
 
-    public boolean isSupplierRelatedMaterial(Product product, Supplier supplier) {
+    public boolean isSupplierRelatedMaterial(Product product, User supplier) {
         if (product == null || supplier == null) {
             return false;
         }
-        String supplierName = normalize(supplier.getName());
+        String supplierName = normalize(supplierDisplayName(supplier));
         String supplierCode = normalize(supplier.getCode());
         String supplierEmail = normalize(supplier.getEmail());
         String preferredSupplier = normalize(product.getPreferredSupplier());
         return (!supplierName.isEmpty() && preferredSupplier.contains(supplierName))
                 || (!supplierCode.isEmpty() && preferredSupplier.contains(supplierCode))
                 || (!supplierEmail.isEmpty() && preferredSupplier.contains(supplierEmail));
+    }
+
+    public List<User> listSuppliersBoundToRawMaterials() {
+        List<Product> rawMaterials = productRepository.findAll().stream()
+                .filter(product -> "RAW_MATERIAL".equalsIgnoreCase(product.getProductType()))
+                .filter(this::hasMaintainedSupplier)
+                .collect(Collectors.toList());
+
+        return userRepository.findDistinctByRoles_NameOrderByIdAsc("ROLE_SUPPLIER").stream()
+                .filter(supplier -> rawMaterials.stream().anyMatch(product -> isSupplierRelatedMaterial(product, supplier)))
+                .sorted(Comparator.comparing(User::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                .collect(Collectors.toList());
+    }
+
+    private boolean isSupplierUser(User user) {
+        return user != null
+                && user.getRoles() != null
+                && user.getRoles().stream()
+                .map(role -> role == null ? "" : safe(role.getName()).toUpperCase(Locale.ROOT))
+                .anyMatch("ROLE_SUPPLIER"::equals);
+    }
+
+    private String supplierDisplayName(User supplier) {
+        if (supplier == null) {
+            return "";
+        }
+        String fullName = safe(supplier.getFullName());
+        if (!fullName.isEmpty()) {
+            return fullName;
+        }
+        String username = safe(supplier.getUsername());
+        if (!username.isEmpty()) {
+            return username;
+        }
+        return safe(supplier.getEmail());
+    }
+
+    private boolean hasMaintainedSupplier(Product product) {
+        return product != null && !safe(product.getPreferredSupplier()).isEmpty();
     }
 
     private InventoryItem findOrCreateInventoryItem(Product product, Warehouse warehouse) {

@@ -4,11 +4,11 @@ import com.code.dto.ProcurementExportRowDto;
 import com.code.dto.SupplierDashboardDto;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
-import com.code.entity.Supplier;
+import com.code.entity.Role;
+import com.code.entity.User;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseOrderRepository;
 import com.code.repository.PurchaseRequestRepository;
-import com.code.repository.SupplierRepository;
 import com.code.service.ProcurementWorkflowService;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
@@ -21,7 +21,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
@@ -30,10 +29,11 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -54,9 +54,6 @@ class ProcurementControllerTest {
     private ProductRepository productRepository;
 
     @Mock
-    private SupplierRepository supplierRepository;
-
-    @Mock
     private ProcurementWorkflowService procurementWorkflowService;
 
     @Mock
@@ -65,7 +62,6 @@ class ProcurementControllerTest {
     @Test
     void createRawMaterialStoresRawMaterialType() {
         ProcurementController.RawMaterialRequest request = new ProcurementController.RawMaterialRequest();
-        request.setSku("rm-001");
         request.setName("冷轧钢板");
         request.setMaterialCategory("钢材");
         request.setUnit("kg");
@@ -73,7 +69,7 @@ class ProcurementControllerTest {
         request.setSafetyStock(100.0);
         request.setLeadTimeDays(7);
 
-        when(productRepository.findBySkuIgnoreCase("rm-001")).thenReturn(Optional.empty());
+        when(productRepository.findBySkuIgnoreCase(any())).thenReturn(Optional.empty());
         when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ResponseEntity<?> response = procurementController.createRawMaterial(request, null);
@@ -83,7 +79,8 @@ class ProcurementControllerTest {
         verify(productRepository).save(captor.capture());
         Product saved = captor.getValue();
         assertEquals("RAW_MATERIAL", saved.getProductType());
-        assertEquals("RM-001", saved.getSku());
+        assertFalse(saved.getSku().isBlank());
+        assertEquals(saved.getSku(), saved.getSku().toUpperCase());
         assertEquals("冷轧钢板", saved.getName());
         assertEquals(100.0, saved.getSafetyStock());
     }
@@ -115,15 +112,17 @@ class ProcurementControllerTest {
     @Test
     void createRawMaterialRejectsDuplicateSku() {
         ProcurementController.RawMaterialRequest request = new ProcurementController.RawMaterialRequest();
-        request.setSku("RM-001");
         request.setName("冷轧钢板");
 
-        when(productRepository.findBySkuIgnoreCase("RM-001")).thenReturn(Optional.of(new Product()));
+        when(productRepository.findBySkuIgnoreCase(any()))
+                .thenReturn(Optional.of(new Product()))
+                .thenReturn(Optional.empty());
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
-        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
-                () -> procurementController.createRawMaterial(request, null));
+        ResponseEntity<?> response = procurementController.createRawMaterial(request, null);
 
-        assertEquals(409, exception.getStatus().value());
+        assertEquals(200, response.getStatusCodeValue());
+        verify(productRepository).save(argThat(product -> product.getSku() != null && !product.getSku().isBlank()));
     }
 
     @Test
@@ -189,7 +188,7 @@ class ProcurementControllerTest {
     @Test
     void createOrderAllowsBackendGeneratedPoNo() {
         PurchaseOrder request = new PurchaseOrder();
-        Supplier supplier = new Supplier();
+        User supplier = supplierUser(1L, "supplier01", "供应商甲", "supplier@example.com");
         supplier.setId(1L);
         request.setSupplier(supplier);
         request.setItems(List.of());
@@ -208,6 +207,19 @@ class ProcurementControllerTest {
     }
 
     @Test
+    void listSuppliersOnlyReturnsSuppliersReferencedByRawMaterials() {
+        User supplierA = supplierUser(1L, "SUP-A", "供应商A", "supplier-a@example.com");
+        User supplierB = supplierUser(2L, "SUP-B", "供应商B", "supplier-b@example.com");
+
+        when(procurementWorkflowService.listSuppliersBoundToRawMaterials()).thenReturn(List.of(supplierA, supplierB));
+
+        List<User> result = procurementController.listSuppliers();
+
+        assertEquals(2, result.size());
+        assertEquals("SUP-A", result.get(0).getCode());
+    }
+
+    @Test
     void listRawMaterialsForSupplierOnlyReturnsOwnMaterials() {
         Product ownMaterial = new Product();
         ownMaterial.setId(10L);
@@ -223,14 +235,11 @@ class ProcurementControllerTest {
         otherMaterial.setProductType("RAW_MATERIAL");
         otherMaterial.setCreatedAt(LocalDateTime.now().minusDays(1));
 
-        Supplier supplier = new Supplier();
-        supplier.setId(5L);
-        supplier.setName("供应商甲");
-        supplier.setEmail("supplier@example.com");
+        User supplier = supplierUser(5L, "supplier01", "供应商甲", "supplier@example.com");
 
         when(authentication.getName()).thenReturn("supplier@example.com");
         doReturn(List.of(new SimpleGrantedAuthority("ROLE_SUPPLIER"))).when(authentication).getAuthorities();
-        when(supplierRepository.findByEmailIgnoreCase("supplier@example.com")).thenReturn(Optional.of(supplier));
+        when(procurementWorkflowService.resolveSupplierAccount("supplier@example.com")).thenReturn(supplier);
         when(productRepository.findAll()).thenReturn(List.of(ownMaterial, otherMaterial));
         when(procurementWorkflowService.isSupplierRelatedMaterial(ownMaterial, supplier)).thenReturn(true);
         when(procurementWorkflowService.isSupplierRelatedMaterial(otherMaterial, supplier)).thenReturn(false);
@@ -244,18 +253,14 @@ class ProcurementControllerTest {
     @Test
     void createRawMaterialForSupplierBindsPreferredSupplierAutomatically() {
         ProcurementController.RawMaterialRequest request = new ProcurementController.RawMaterialRequest();
-        request.setSku("rm-supplier-001");
         request.setName("供应商专属钢板");
 
-        Supplier supplier = new Supplier();
-        supplier.setId(8L);
-        supplier.setName("供应商甲");
-        supplier.setEmail("supplier@example.com");
+        User supplier = supplierUser(8L, "supplier08", "供应商甲", "supplier@example.com");
 
         when(authentication.getName()).thenReturn("supplier@example.com");
         doReturn(List.of(new SimpleGrantedAuthority("ROLE_SUPPLIER"))).when(authentication).getAuthorities();
-        when(supplierRepository.findByEmailIgnoreCase("supplier@example.com")).thenReturn(Optional.of(supplier));
-        when(productRepository.findBySkuIgnoreCase("rm-supplier-001")).thenReturn(Optional.empty());
+        when(procurementWorkflowService.resolveSupplierAccount("supplier@example.com")).thenReturn(supplier);
+        when(productRepository.findBySkuIgnoreCase(any())).thenReturn(Optional.empty());
         when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ResponseEntity<?> response = procurementController.createRawMaterial(request, authentication);
@@ -264,6 +269,50 @@ class ProcurementControllerTest {
         ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
         verify(productRepository).save(captor.capture());
         assertEquals("供应商甲", captor.getValue().getPreferredSupplier());
+        assertFalse(captor.getValue().getSku().isBlank());
+    }
+
+    @Test
+    void importRawMaterialsForSupplierBindsPreferredSupplierAndSucceeds() throws Exception {
+        byte[] bytes = buildWorkbook();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "raw-materials.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                bytes
+        );
+
+        User supplier = supplierUser(9L, "supplier09", "供应商甲", "supplier@example.com");
+
+        when(authentication.getName()).thenReturn("supplier@example.com");
+        doReturn(List.of(new SimpleGrantedAuthority("ROLE_SUPPLIER"))).when(authentication).getAuthorities();
+        when(procurementWorkflowService.resolveSupplierAccount("supplier@example.com")).thenReturn(supplier);
+        when(productRepository.findBySkuIgnoreCase("RM-001")).thenReturn(Optional.empty());
+        when(productRepository.findBySkuIgnoreCase("RM-002")).thenReturn(Optional.empty());
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ResponseEntity<ProcurementController.ImportResult> response = procurementController.importRawMaterials(file, authentication);
+
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals(2, response.getBody().getCreatedCount());
+        ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+        verify(productRepository, org.mockito.Mockito.times(2)).save(captor.capture());
+        assertTrue(captor.getAllValues().stream().allMatch(product -> "供应商甲".equals(product.getPreferredSupplier())));
+        assertTrue(response.getBody().getErrors().isEmpty());
+    }
+
+    private User supplierUser(Long id, String username, String fullName, String email) {
+        Role role = new Role();
+        role.setName("ROLE_SUPPLIER");
+
+        User user = new User();
+        user.setId(id);
+        user.setUsername(username);
+        user.setFullName(fullName);
+        user.setEmail(email);
+        user.setRoles(java.util.Set.of(role));
+        return user;
     }
 
     private byte[] buildWorkbook() throws Exception {

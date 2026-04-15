@@ -5,10 +5,9 @@ import com.code.dto.SupplierDashboardDto;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseRequest;
-import com.code.entity.Supplier;
+import com.code.entity.User;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseRequestRepository;
-import com.code.repository.SupplierRepository;
 import com.code.service.ProcurementWorkflowService;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
@@ -39,6 +38,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @RestController
@@ -54,9 +54,6 @@ public class ProcurementController {
     private ProductRepository productRepository;
 
     @Autowired
-    private SupplierRepository supplierRepository;
-
-    @Autowired
     private ProcurementWorkflowService procurementWorkflowService;
 
     @GetMapping("/requests")
@@ -66,10 +63,8 @@ public class ProcurementController {
 
     @GetMapping("/suppliers")
     @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
-    public List<Supplier> listSuppliers() {
-        return supplierRepository.findAll().stream()
-                .sorted(Comparator.comparing(Supplier::getId, Comparator.nullsLast(Comparator.naturalOrder())))
-                .collect(Collectors.toList());
+    public List<User> listSuppliers() {
+        return procurementWorkflowService.listSuppliersBoundToRawMaterials();
     }
 
     @GetMapping("/orders")
@@ -284,7 +279,7 @@ public class ProcurementController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "结束日期不能早于开始日期");
         }
 
-        Supplier currentSupplier = resolveCurrentSupplier(authentication);
+        User currentSupplier = resolveCurrentSupplier(authentication);
 
         return productRepository.findAll().stream()
                 .filter(this::isRawMaterial)
@@ -305,7 +300,7 @@ public class ProcurementController {
         if (!isRawMaterial(product)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在: " + id);
         }
-        Supplier currentSupplier = resolveCurrentSupplier(authentication);
+        User currentSupplier = resolveCurrentSupplier(authentication);
         if (currentSupplier != null && !procurementWorkflowService.isSupplierRelatedMaterial(product, currentSupplier)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在: " + id);
         }
@@ -315,10 +310,8 @@ public class ProcurementController {
     @PostMapping("/raw-materials")
     @PreAuthorize("hasAnyRole('SUPPLIER','ADMIN')")
     public ResponseEntity<?> createRawMaterial(@RequestBody RawMaterialRequest request, Authentication authentication) {
+        assignRawMaterialSku(request);
         validateRawMaterialRequest(request);
-        if (productRepository.findBySkuIgnoreCase(request.getSku().trim()).isPresent()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU已存在: " + request.getSku().trim());
-        }
         applySupplierScope(request, authentication);
         Product material = buildRawMaterial(new Product(), request);
         Product saved = productRepository.save(material);
@@ -340,7 +333,7 @@ public class ProcurementController {
                 sheet.setColumnWidth(i, 18 * 256);
             }
             Row example = sheet.createRow(1);
-            example.createCell(0).setCellValue("RM-STEEL-001");
+            example.createCell(0).setCellValue("");
             example.createCell(1).setCellValue("冷轧钢板");
             example.createCell(2).setCellValue("钢材");
             example.createCell(3).setCellValue("Q235 / 2mm");
@@ -386,6 +379,9 @@ public class ProcurementController {
                 }
                 try {
                     RawMaterialRequest request = parseRow(row);
+                    if (isBlank(request.getSku())) {
+                        assignRawMaterialSku(request);
+                    }
                     validateRawMaterialRequest(request);
                     applySupplierScope(request, authentication);
                     Optional<Product> existing = productRepository.findBySkuIgnoreCase(request.getSku().trim());
@@ -428,10 +424,27 @@ public class ProcurementController {
     }
 
     private void applySupplierScope(RawMaterialRequest request, Authentication authentication) {
-        Supplier currentSupplier = resolveCurrentSupplier(authentication);
+        User currentSupplier = resolveCurrentSupplier(authentication);
         if (currentSupplier != null && request != null) {
             request.setPreferredSupplier(currentSupplier.getName());
         }
+    }
+
+    private void assignRawMaterialSku(RawMaterialRequest request) {
+        if (request == null) {
+            return;
+        }
+        request.setSku(generateRawMaterialSku());
+    }
+
+    private String generateRawMaterialSku() {
+        for (int attempt = 0; attempt < 10; attempt++) {
+            String candidate = UUID.randomUUID().toString().toUpperCase(Locale.ROOT);
+            if (productRepository.findBySkuIgnoreCase(candidate).isEmpty()) {
+                return candidate;
+            }
+        }
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "原材料编号生成失败，请稍后重试");
     }
 
     private void validateRawMaterialRequest(RawMaterialRequest request) {
@@ -518,20 +531,19 @@ public class ProcurementController {
         return product != null && "RAW_MATERIAL".equalsIgnoreCase(product.getProductType());
     }
 
-    private Supplier resolveCurrentSupplier(Authentication authentication) {
-        if (!hasRole(authentication, "ROLE_SUPPLIER") || authentication == null || isBlank(authentication.getName())) {
+    private User resolveCurrentSupplier(Authentication authentication) {
+        if (authentication == null || !hasSupplierRole(authentication) || isBlank(authentication.getName())) {
             return null;
         }
-        return supplierRepository.findByEmailIgnoreCase(authentication.getName().trim().toLowerCase(Locale.ROOT))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号未绑定供应商信息"));
+        return procurementWorkflowService.resolveSupplierAccount(authentication.getName().trim().toLowerCase(Locale.ROOT));
     }
 
-    private boolean hasRole(Authentication authentication, String role) {
+    private boolean hasSupplierRole(Authentication authentication) {
         return authentication != null
                 && authentication.getAuthorities() != null
                 && authentication.getAuthorities().stream()
                 .map(GrantedAuthority::getAuthority)
-                .anyMatch(role::equalsIgnoreCase);
+                .anyMatch("ROLE_SUPPLIER"::equalsIgnoreCase);
     }
 
     private boolean matchesKeyword(Product product, String keyword) {

@@ -43,19 +43,6 @@ CREATE TABLE IF NOT EXISTS `customers` (
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- 供应商表
-CREATE TABLE IF NOT EXISTS `suppliers` (
-  `id` BIGINT AUTO_INCREMENT PRIMARY KEY, -- 供应商ID
-  `code` VARCHAR(64) NOT NULL UNIQUE, -- 供应商编码
-  `name` VARCHAR(200) NOT NULL, -- 供应商名称
-  `contact` VARCHAR(200), -- 联系人
-  `phone` VARCHAR(50), -- 联系电话
-  `email` VARCHAR(200), -- 邮箱
-  `address` VARCHAR(500), -- 地址
-  `lead_time_days` INT DEFAULT 0, -- 交货周期（天）
-  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 -- 仓库表
 CREATE TABLE IF NOT EXISTS `warehouses` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY, -- 仓库ID
@@ -203,18 +190,18 @@ CREATE TABLE IF NOT EXISTS `purchase_request` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY, -- 申请表ID
   `request_no` VARCHAR(100) NOT NULL UNIQUE, -- 申请编号
   `requested_by` BIGINT, -- 申请人ID
-  `supplier_id` BIGINT, -- 供应商ID
+  `supplier_id` BIGINT, -- 供应商用户ID
   `request_date` DATETIME DEFAULT CURRENT_TIMESTAMP, -- 申请日期
   `status` VARCHAR(50) DEFAULT 'OPEN', -- 申请状态
   `notes` TEXT -- 备注
-  -- 外键约束：fk_pr_supplier (supplier_id -> suppliers.id)
+  -- 外键约束：fk_pr_supplier_user (supplier_id -> users.id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 采购订单表
 CREATE TABLE IF NOT EXISTS `purchase_order` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY, -- 订单ID
   `po_no` VARCHAR(100) NOT NULL UNIQUE, -- 订单编号
-  `supplier_id` BIGINT, -- 供应商ID
+  `supplier_id` BIGINT, -- 供应商用户ID
   `order_date` DATETIME DEFAULT CURRENT_TIMESTAMP, -- 订单日期
   `status` VARCHAR(50) DEFAULT 'CREATED', -- 订单状态
   `total_amount` DECIMAL(18,2) DEFAULT 0, -- 总金额
@@ -226,7 +213,7 @@ CREATE TABLE IF NOT EXISTS `purchase_order` (
   `notified_warehouse_at` DATETIME, -- 通知仓库时间
   `received_at` DATETIME, -- 收货入库时间
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
-  -- 外键约束：fk_po_supplier (supplier_id -> suppliers.id)
+  -- 外键约束：fk_po_supplier_user (supplier_id -> users.id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 采购订单子项表

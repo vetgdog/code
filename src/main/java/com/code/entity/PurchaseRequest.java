@@ -20,7 +20,7 @@ public class PurchaseRequest {
 
     @ManyToOne
     @JoinColumn(name = "supplier_id")
-    private Supplier supplier;
+    private User supplier;
 
     private LocalDateTime requestDate = LocalDateTime.now();
     private String status = "OPEN";
