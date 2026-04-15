@@ -13,7 +13,9 @@ export const orderApi = {
   createPlan: (orderId) => client.post(`/orders/${orderId}/create-plan`),
   routeToWarehouse: (orderId, payload = {}) => client.post(`/orders/${orderId}/route-to-warehouse`, payload),
   warehouseReview: (orderId, payload = {}) => client.post(`/orders/${orderId}/warehouse-review`, payload),
+  listPendingProductionStockIn: () => client.get('/orders/pending-production-stock-in'),
   warehouseShip: (orderId, payload = {}) => client.post(`/orders/${orderId}/warehouse-ship`, payload),
+  warehouseStockIn: (orderId, payload = {}) => client.post(`/orders/${orderId}/warehouse-stock-in`, payload),
   productionComplete: (orderId, payload = {}) => client.post(`/orders/${orderId}/production-complete`, payload),
   salesDecision: (orderId, decision, payload = {}) => client.post(`/orders/${orderId}/sales-decision?decision=${encodeURIComponent(decision)}`, payload),
   updateSalesStatus: (orderId, status) => client.post(`/orders/${orderId}/sales-status?status=${encodeURIComponent(status)}`)
@@ -22,18 +24,38 @@ export const orderApi = {
 export const productionApi = {
   createTask: (payload) => client.post('/production/tasks', payload),
   listByUser: (userId) => client.get(`/production/tasks/user/${userId}`),
+  listRecords: (params = {}) => client.get('/production/records', { params }),
   updateStatus: (taskId, status) => client.post(`/production/tasks/${taskId}/status?status=${encodeURIComponent(status)}`)
 };
 
 export const inventoryApi = {
-  list: () => client.get('/inventory'),
+  list: (params = {}) => client.get('/inventory', { params }),
+  listWarehouses: () => client.get('/inventory/warehouses'),
+  listTransactions: (params = {}) => client.get('/inventory/transactions', { params }),
   stockIn: (payload) => client.post('/inventory/stock-in', payload),
   stockOut: (payload) => client.post('/inventory/stock-out', payload)
 };
 
 export const procurementApi = {
+  listSuppliers: () => client.get('/procurement/suppliers'),
+  getDashboard: () => client.get('/procurement/dashboard'),
   listRequests: () => client.get('/procurement/requests'),
-  createOrder: (payload) => client.post('/procurement/orders', payload)
+  listOrders: (params = {}) => client.get('/procurement/orders', { params }),
+  exportOrdersCsv: (params = {}) => client.get('/procurement/orders/export', { params: { ...params, format: 'csv' }, responseType: 'blob' }),
+  exportOrdersExcel: (params = {}) => client.get('/procurement/orders/export', { params: { ...params, format: 'xlsx' }, responseType: 'blob' }),
+  listPendingWarehouseReceipts: () => client.get('/procurement/orders/pending-warehouse-receipt'),
+  createOrder: (payload) => client.post('/procurement/orders', payload),
+  supplierDecision: (orderId, decision, payload = {}) => client.post(`/procurement/orders/${orderId}/supplier-decision?decision=${encodeURIComponent(decision)}`, payload),
+  supplierShip: (orderId, payload = {}) => client.post(`/procurement/orders/${orderId}/supplier-ship`, payload),
+  notifyWarehouse: (orderId, payload = {}) => client.post(`/procurement/orders/${orderId}/notify-warehouse`, payload),
+  warehouseReceive: (orderId, payload = {}) => client.post(`/procurement/orders/${orderId}/warehouse-receive`, payload),
+  listRawMaterials: (params = {}) => client.get('/procurement/raw-materials', { params }),
+  getRawMaterial: (id) => client.get(`/procurement/raw-materials/${id}`),
+  createRawMaterial: (payload) => client.post('/procurement/raw-materials', payload),
+  downloadRawMaterialTemplate: () => client.get('/procurement/raw-materials/template', { responseType: 'blob' }),
+  importRawMaterials: (formData) => client.post('/procurement/raw-materials/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  })
 };
 
 export const qualityApi = {
@@ -42,7 +64,7 @@ export const qualityApi = {
 };
 
 export const productApi = {
-  list: () => client.get('/products'),
+  list: (params = {}) => client.get('/products', { params }),
   create: (payload) => client.post('/products', payload),
   update: (id, payload) => client.put(`/products/${id}`, payload),
   remove: (id) => client.delete(`/products/${id}`)

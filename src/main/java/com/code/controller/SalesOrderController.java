@@ -26,6 +26,7 @@ import java.util.UUID;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Comparator;
 
 @RestController
 @RequestMapping("/api/v1/orders")
@@ -48,7 +49,12 @@ public class SalesOrderController {
 
     @GetMapping
     public List<SalesOrder> list() {
-        return salesOrderRepository.findAll();
+        return salesOrderRepository.findAll().stream()
+                .sorted(Comparator
+                        .comparing(SalesOrder::getOrderDate, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(SalesOrder::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(SalesOrder::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
     }
 
     @PostMapping
@@ -128,6 +134,21 @@ public class SalesOrderController {
                                                 Authentication authentication) {
         ensureRole(authentication, "ROLE_ADMIN", "ROLE_PRODUCTION_MANAGER");
         SalesOrder order = orderWorkflowService.markProductionCompleted(orderId, authentication == null ? "" : authentication.getName(), request == null ? "" : request.getNote());
+        return ResponseEntity.ok(order);
+    }
+
+    @GetMapping("/pending-production-stock-in")
+    public List<SalesOrder> listPendingProductionStockIn(Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        return orderWorkflowService.listOrdersPendingProductionStockIn();
+    }
+
+    @PostMapping("/{orderId}/warehouse-stock-in")
+    public ResponseEntity<?> warehouseStockIn(@PathVariable Long orderId,
+                                              @RequestBody(required = false) WorkflowActionRequest request,
+                                              Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        SalesOrder order = orderWorkflowService.confirmProductionStockIn(orderId, authentication == null ? "" : authentication.getName(), request == null ? "" : request.getNote());
         return ResponseEntity.ok(order);
     }
 

@@ -58,6 +58,12 @@ const routes = [
     meta: { title: '采购管理', subtitle: 'Requests and orders' }
   },
   {
+    path: '/supply',
+    name: 'Supply',
+    component: Procurement,
+    meta: { title: '供应管理', subtitle: 'Supply orders and materials' }
+  },
+  {
     path: '/quality',
     name: 'Quality',
     component: Quality,

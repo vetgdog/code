@@ -70,9 +70,17 @@ public class OrderWorkflowService {
         order.setCreatedAt(order.getCreatedAt() == null ? LocalDateTime.now() : order.getCreatedAt());
         SalesOrder saved = salesOrderRepository.save(order);
 
-        notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_TO_WAREHOUSE", saved, operator));
-        notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("WAREHOUSE_ACTION_REQUIRED", saved, operator));
-        notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_SALES_ROUTED", saved, operator));
+        notificationService.broadcast(
+                "/topic/orders/warehouse",
+                buildOrderMessage(
+                        "WAREHOUSE_ACTION_REQUIRED",
+                        saved,
+                        operator,
+                        "接收一条新的订单 " + saved.getOrderNo() + "，请查看。",
+                        saved.getShippingAddress()
+                )
+        );
+        notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
 
         return saved;
     }
@@ -95,22 +103,36 @@ public class OrderWorkflowService {
         if (shortages.isEmpty()) {
             reserveInventoryForOrder(order);
             order.setStatus(STATUS_ACCEPTED);
-            notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_READY_TO_SHIP", order, operator));
-            notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_READY_TO_SHIP", order, operator));
+            notificationService.broadcast(
+                    "/topic/orders/sales",
+                    buildOrderMessage(
+                            "ORDER_READY_TO_SHIP",
+                            order,
+                            operator,
+                            "订单 " + order.getOrderNo() + " 库存已核验通过，请查看。",
+                            note
+                    )
+            );
         } else {
             order.setStatus(STATUS_IN_PRODUCTION);
             createdPlans = createProductionPlans(order, shortages);
-            notificationService.broadcast("/topic/orders/production", buildReviewMessage("ORDER_PRODUCTION_REQUIRED", order, shortages, createdPlans, operator, note));
-            notificationService.broadcast("/topic/production", buildReviewMessage("ORDER_PRODUCTION_REQUIRED", order, shortages, createdPlans, operator, note));
-            notificationService.broadcast("/topic/orders/warehouse", buildReviewMessage("ORDER_STOCK_SHORTAGE", order, shortages, createdPlans, operator, note));
-            notificationService.broadcast("/topic/orders/sales", buildReviewMessage("ORDER_STOCK_SHORTAGE", order, shortages, createdPlans, operator, note));
+            notificationService.broadcast(
+                    "/topic/orders/production",
+                    buildReviewMessage(
+                            "ORDER_PRODUCTION_REQUIRED",
+                            order,
+                            shortages,
+                            createdPlans,
+                            operator,
+                            note,
+                            "生产计划订单 " + summarizePlanNos(createdPlans) + " 已下发，请查看。",
+                            note
+                    )
+            );
         }
 
         SalesOrder savedOrder = salesOrderRepository.save(order);
         WarehouseReviewResult result = new WarehouseReviewResult(savedOrder, shortages, createdPlans, note);
-        if (!stockedPlans.isEmpty()) {
-            notificationService.broadcast("/topic/orders/warehouse", buildReviewMessage("PRODUCTION_STOCK_IN_CONFIRMED", savedOrder, List.of(), stockedPlans, operator, note));
-        }
         notificationService.broadcast("/topic/orders", new NotificationMessage("ORDER_WORKFLOW_UPDATED", "SalesOrder", savedOrder.getId(), result, LocalDateTime.now()));
         return result;
     }
@@ -125,6 +147,7 @@ public class OrderWorkflowService {
         List<ProductionPlan> plans = productionPlanRepository.findByPlanNoStartingWith("PLAN-" + order.getOrderNo() + "-");
         for (ProductionPlan plan : plans) {
             plan.setStatus("DONE");
+            plan.setEndDate(LocalDateTime.now());
         }
         if (!plans.isEmpty()) {
             productionPlanRepository.saveAll(plans);
@@ -132,11 +155,66 @@ public class OrderWorkflowService {
 
         order.setStatus(STATUS_PENDING_WAREHOUSE_CHECK);
         SalesOrder saved = salesOrderRepository.save(order);
-        NotificationMessage completionMessage = buildReviewMessage("ORDER_PRODUCTION_DONE", saved, List.of(), plans, operator, note);
+        NotificationMessage completionMessage = buildReviewMessage(
+                "ORDER_PRODUCTION_DONE",
+                saved,
+                List.of(),
+                plans,
+                operator,
+                note,
+                "生产计划订单 " + summarizePlanNos(plans) + " 已完成，请仓库确认入库！",
+                note
+        );
         notificationService.broadcast("/topic/orders/warehouse", completionMessage);
-        notificationService.broadcast("/topic/orders/sales", completionMessage);
         notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
         return saved;
+    }
+
+    @Transactional
+    public SalesOrder confirmProductionStockIn(Long orderId, String operator, String note) {
+        SalesOrder order = getOrder(orderId);
+        if (!STATUS_PENDING_WAREHOUSE_CHECK.equals(safeStatus(order.getStatus()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许确认生产入库: " + order.getStatus());
+        }
+
+        String prefix = "PLAN-" + order.getOrderNo() + "-";
+        List<ProductionPlan> completedPlans = productionPlanRepository.findByPlanNoStartingWithAndStatus(prefix, "DONE");
+        if (completedPlans.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前订单没有待入库的完工生产计划");
+        }
+
+        List<ProductionPlan> stockedPlans = stockInCompletedPlans(order, operator);
+        List<ProductShortage> shortages = evaluateShortages(order);
+        if (!shortages.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "生产入库后库存仍不足，请检查生产计划是否全部完工");
+        }
+        reserveInventoryForOrder(order);
+        order.setStatus(STATUS_ACCEPTED);
+        SalesOrder saved = salesOrderRepository.save(order);
+
+        notificationService.broadcast(
+                "/topic/orders/sales",
+                buildReviewMessage(
+                        "PRODUCTION_STOCK_IN_CONFIRMED",
+                        saved,
+                        List.of(),
+                        stockedPlans,
+                        operator,
+                        note,
+                        "生产计划订单 " + summarizePlanNos(stockedPlans) + " 已完成入库，请查看。",
+                        note
+                )
+        );
+        notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
+        return saved;
+    }
+
+    public List<SalesOrder> listOrdersPendingProductionStockIn() {
+        return salesOrderRepository.findAll().stream()
+                .filter(order -> STATUS_PENDING_WAREHOUSE_CHECK.equals(safeStatus(order.getStatus())))
+                .filter(order -> !productionPlanRepository.findByPlanNoStartingWithAndStatus("PLAN-" + order.getOrderNo() + "-", "DONE").isEmpty())
+                .sorted(Comparator.comparing(SalesOrder::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
     }
 
     @Transactional
@@ -150,8 +228,26 @@ public class OrderWorkflowService {
         order.setStatus(STATUS_SHIPPED);
         SalesOrder saved = salesOrderRepository.save(order);
 
-        notificationService.broadcast("/topic/orders/sales", buildOrderMessage("ORDER_SHIPPED_BY_WAREHOUSE", saved, operator));
-        notificationService.broadcast("/topic/orders/warehouse", buildOrderMessage("ORDER_SHIPPED_BY_WAREHOUSE", saved, operator));
+        notificationService.broadcast(
+                "/topic/orders/sales",
+                buildOrderMessage(
+                        "ORDER_SHIPPED_BY_WAREHOUSE",
+                        saved,
+                        operator,
+                        "订单 " + saved.getOrderNo() + " 已发货，请查看。",
+                        saved.getShippingAddress()
+                )
+        );
+        notificationService.broadcast(
+                resolveCustomerTopic(saved),
+                buildOrderMessage(
+                        "ORDER_SHIPPED_TO_CUSTOMER",
+                        saved,
+                        operator,
+                        "您的订单 " + saved.getOrderNo() + " 已发货。",
+                        saved.getShippingAddress()
+                )
+        );
         notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
         return saved;
     }
@@ -369,7 +465,16 @@ public class OrderWorkflowService {
     }
 
     private NotificationMessage buildOrderMessage(String type, SalesOrder order, String operator) {
-        WorkflowEvent event = new WorkflowEvent(order, List.of(), List.of(), operator, "");
+        WorkflowEvent event = new WorkflowEvent(order, List.of(), List.of(), operator, "", "", "");
+        return new NotificationMessage(type, "SalesOrder", order.getId(), event, LocalDateTime.now());
+    }
+
+    private NotificationMessage buildOrderMessage(String type,
+                                                  SalesOrder order,
+                                                  String operator,
+                                                  String notificationTitle,
+                                                  String notificationMeta) {
+        WorkflowEvent event = new WorkflowEvent(order, List.of(), List.of(), operator, "", notificationTitle, notificationMeta);
         return new NotificationMessage(type, "SalesOrder", order.getId(), event, LocalDateTime.now());
     }
 
@@ -379,8 +484,48 @@ public class OrderWorkflowService {
                                                    List<ProductionPlan> plans,
                                                    String operator,
                                                    String note) {
-        WorkflowEvent event = new WorkflowEvent(order, shortages, plans, operator, note);
+        WorkflowEvent event = new WorkflowEvent(order, shortages, plans, operator, note, "", "");
         return new NotificationMessage(type, "SalesOrder", order.getId(), event, LocalDateTime.now());
+    }
+
+    private NotificationMessage buildReviewMessage(String type,
+                                                   SalesOrder order,
+                                                   List<ProductShortage> shortages,
+                                                   List<ProductionPlan> plans,
+                                                   String operator,
+                                                   String note,
+                                                   String notificationTitle,
+                                                   String notificationMeta) {
+        WorkflowEvent event = new WorkflowEvent(order, shortages, plans, operator, note, notificationTitle, notificationMeta);
+        return new NotificationMessage(type, "SalesOrder", order.getId(), event, LocalDateTime.now());
+    }
+
+    private String summarizePlanNos(List<ProductionPlan> plans) {
+        if (plans == null || plans.isEmpty()) {
+            return "-";
+        }
+        List<String> planNos = plans.stream()
+                .map(ProductionPlan::getPlanNo)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
+        if (planNos.isEmpty()) {
+            return "-";
+        }
+        if (planNos.size() == 1) {
+            return planNos.get(0);
+        }
+        return planNos.get(0) + " 等" + planNos.size() + "条";
+    }
+
+    private String resolveCustomerTopic(SalesOrder order) {
+        if (order == null || order.getCustomer() == null || order.getCustomer().getEmail() == null) {
+            return "/topic/orders/customer";
+        }
+        String normalized = order.getCustomer().getEmail().trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("(^-|-$)", "");
+        return normalized.isEmpty() ? "/topic/orders/customer" : "/topic/orders/customer/" + normalized;
     }
 
     private double safeNumber(Double value) {
@@ -478,17 +623,23 @@ public class OrderWorkflowService {
         private final List<ProductionPlan> productionPlans;
         private final String operator;
         private final String note;
+        private final String notificationTitle;
+        private final String notificationMeta;
 
         public WorkflowEvent(SalesOrder order,
                              List<ProductShortage> shortages,
                              List<ProductionPlan> productionPlans,
                              String operator,
-                             String note) {
+                             String note,
+                             String notificationTitle,
+                             String notificationMeta) {
             this.order = order;
             this.shortages = shortages;
             this.productionPlans = productionPlans;
             this.operator = operator;
             this.note = note;
+            this.notificationTitle = notificationTitle;
+            this.notificationMeta = notificationMeta;
         }
 
         public SalesOrder getOrder() {
@@ -509,6 +660,14 @@ public class OrderWorkflowService {
 
         public String getNote() {
             return note;
+        }
+
+        public String getNotificationTitle() {
+            return notificationTitle;
+        }
+
+        public String getNotificationMeta() {
+            return notificationMeta;
         }
     }
 }

@@ -13,17 +13,43 @@ const state = reactive({
 
 let stompClient = null;
 
-const ROLE_TOPICS = {
-  ROLE_CUSTOMER: ['/topic/orders'],
-  ROLE_SALES_MANAGER: ['/topic/orders', '/topic/orders/sales'],
-  ROLE_WAREHOUSE_MANAGER: ['/topic/orders', '/topic/orders/warehouse'],
-  ROLE_PRODUCTION_MANAGER: ['/topic/orders', '/topic/orders/production', '/topic/production'],
-  ROLE_ADMIN: ['/topic/orders', '/topic/orders/sales', '/topic/orders/warehouse', '/topic/orders/production', '/topic/production']
+const buildCustomerTopics = (email = '') => {
+  const normalized = String(email || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  return normalized ? ['/topic/orders/customer', `/topic/orders/customer/${normalized}`] : ['/topic/orders/customer'];
 };
 
-const resolveTopicsByRole = (role) => {
+const buildSupplierTopics = (email = '') => {
+  const normalized = String(email || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  return normalized ? ['/topic/procurement/supplier', `/topic/procurement/supplier/${normalized}`] : ['/topic/procurement/supplier'];
+};
+
+const ROLE_TOPICS = {
+  ROLE_CUSTOMER: ({ email }) => buildCustomerTopics(email),
+  ROLE_SALES_MANAGER: () => ['/topic/orders/sales'],
+  ROLE_WAREHOUSE_MANAGER: () => ['/topic/orders/warehouse', '/topic/procurement/warehouse'],
+  ROLE_PROCUREMENT_MANAGER: () => ['/topic/procurement/manager', '/topic/procurement'],
+  ROLE_SUPPLIER: ({ email }) => buildSupplierTopics(email),
+  ROLE_PRODUCTION_MANAGER: () => ['/topic/orders/production', '/topic/production'],
+  ROLE_ADMIN: () => ['/topic/orders', '/topic/orders/sales', '/topic/orders/warehouse', '/topic/orders/production', '/topic/production', '/topic/procurement', '/topic/procurement/manager', '/topic/procurement/warehouse']
+};
+
+const resolveTopicsByRole = (role, email = '') => {
   const normalizedRole = normalizeRole(role);
-  return ROLE_TOPICS[normalizedRole] || ['/topic/orders'];
+  const topicResolver = ROLE_TOPICS[normalizedRole];
+  const topics = topicResolver ? topicResolver({ email }) : ['/topic/orders'];
+  return [...new Set(topics)];
 };
 
 const normalizeMessage = (topic, body) => {
@@ -57,7 +83,7 @@ const clearEvents = () => {
   state.unreadCount = 0;
 };
 
-const connect = (role = '') => {
+const connect = (role = '', email = '') => {
   if (stompClient?.active || state.connected) {
     return;
   }
@@ -73,7 +99,7 @@ const connect = (role = '') => {
       onConnect: () => {
         state.connected = true;
 
-        const topics = resolveTopicsByRole(role);
+        const topics = resolveTopicsByRole(role, email);
         topics.forEach((topic) => {
           stompClient.subscribe(topic, (message) => {
             const body = JSON.parse(message.body || '{}');

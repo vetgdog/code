@@ -97,32 +97,54 @@ const formatNotificationTitle = (event) => {
   const orderNo = order?.orderNo || (event?.entityId ? `#${event.entityId}` : '');
   const planNo = extractPlans(event)[0]?.planNo;
 
+   if (event?.payload?.notificationTitle) {
+    return event.payload.notificationTitle;
+  }
+
   switch (event?.messageType) {
     case 'ORDER_SUBMITTED':
       return `订单 ${orderNo} 已成功下单，请耐心等候。`;
-    case 'ORDER_TO_WAREHOUSE':
-    case 'ORDER_SALES_ROUTED':
-      return `订单 ${orderNo} 订单信息已发送给仓库管理员。`;
+    case 'ORDER_WORKFLOW_UPDATED':
+      return `订单 ${orderNo} 状态已更新，请查看。`;
     case 'WAREHOUSE_ACTION_REQUIRED':
-      return `订单 ${orderNo} 待仓库管理员处理。`;
+      return `接收一条新的订单 ${orderNo}，请查看。`;
     case 'ORDER_SHIPPED_BY_WAREHOUSE':
-      return `订单 ${orderNo} 订单已发货。`;
+      return `订单 ${orderNo} 已发货，请查看。`;
+    case 'ORDER_SHIPPED_TO_CUSTOMER':
+      return `您的订单 ${orderNo} 已发货。`;
     case 'ORDER_PRODUCTION_REQUIRED':
-      return `${planNo || '生产计划'} 已成功发送至生产管理员。`;
+      return `生产计划订单 ${planNo || '-'} 已下发，请查看。`;
     case 'ORDER_PRODUCTION_DONE':
-      return `${planNo || '生产订单'} 已完成，请仓库核验入库。`;
+      return `生产计划订单 ${planNo || '-'} 已完成，请查看！`;
     case 'PRODUCTION_STOCK_IN_CONFIRMED':
       return `${planNo || '生产订单'} 已完成核验并自动入库。`;
     case 'ORDER_READY_TO_SHIP':
-      return `订单 ${orderNo} 库存已满足，可执行发货。`;
+      return `订单 ${orderNo} 库存已核验通过，请查看。`;
     case 'SALES_RECORD_CREATED':
       return `订单 ${orderNo} 已归档为销售记录。`;
+    case 'PROCUREMENT_ORDER_CREATED':
+      return '收到一张新的采购单，请处理。';
+    case 'PROCUREMENT_ORDER_UPDATED':
+      return '采购单状态已更新，请查看。';
+    case 'PROCUREMENT_ORDER_ACCEPTED':
+      return '供应商已接单，请查看采购单进度。';
+    case 'PROCUREMENT_ORDER_REJECTED':
+      return '供应商已拒绝采购单，请查看。';
+    case 'PROCUREMENT_ORDER_SHIPPED':
+      return '供应商已发货，请采购管理员查看。';
+    case 'PROCUREMENT_WAREHOUSE_CONFIRM_REQUIRED':
+      return '采购到货待仓库确认入库。';
+    case 'PROCUREMENT_ORDER_WAREHOUSED':
+      return '采购单已确认收货并自动入库。';
     default:
       return `${event?.messageType || '系统消息'} · ${event?.entity || 'Event'}`;
   }
 };
 
 const formatNotificationMeta = (event) => {
+  if (event?.payload?.notificationMeta) {
+    return event.payload.notificationMeta;
+  }
   const order = extractOrder(event);
   if (order?.shippingAddress) {
     return `收货地址：${order.shippingAddress}`;

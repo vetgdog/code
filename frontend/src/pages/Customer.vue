@@ -82,6 +82,8 @@
           <thead class="text-xs text-on-surface-variant">
             <tr class="text-left">
               <th class="pb-2">订单号</th>
+              <th class="pb-2">产品信息</th>
+              <th class="pb-2">数量</th>
               <th class="pb-2">状态</th>
               <th class="pb-2">总额</th>
               <th class="pb-2">收货地址</th>
@@ -92,6 +94,8 @@
           <tbody>
             <tr v-for="order in orders" :key="order.id" class="border-t border-outline-variant/20">
               <td class="py-3 font-semibold">{{ order.orderNo }}</td>
+              <td class="py-3">{{ formatProducts(order.items) }}</td>
+              <td class="py-3">{{ formatQuantity(order.items) }}</td>
               <td class="py-3">{{ order.status }}</td>
               <td class="py-3">¥{{ formatAmount(order.totalAmount) }}</td>
               <td class="py-3">{{ order.shippingAddress || '-' }}</td>
@@ -111,7 +115,9 @@
         <div>订单号: {{ selectedOrder.orderNo }}</div>
         <div>状态: {{ selectedOrder.status }}</div>
         <div>总额: ¥{{ formatAmount(selectedOrder.totalAmount) }}</div>
+        <div>总数量: {{ formatQuantity(selectedOrder.items) }}</div>
         <div>收货地址: {{ selectedOrder.shippingAddress || '-' }}</div>
+        <div>下单时间: {{ formatDate(selectedOrder.orderDate || selectedOrder.createdAt) }}</div>
       </div>
       <div class="mt-4">
         <h5 class="text-xs font-semibold uppercase tracking-widest text-on-surface-variant">明细</h5>
@@ -121,13 +127,15 @@
               <th class="pb-2">产品</th>
               <th class="pb-2">数量</th>
               <th class="pb-2">单价</th>
+              <th class="pb-2">金额</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in selectedOrder.items" :key="item.id" class="border-t border-outline-variant/20">
-              <td class="py-3">{{ item.product?.id || '-' }}</td>
-              <td class="py-3">{{ item.quantity }}</td>
+              <td class="py-3">{{ item.product?.name || item.product?.sku || '-' }}</td>
+              <td class="py-3">{{ formatNumber(item.quantity) }}</td>
               <td class="py-3">¥{{ formatAmount(item.unitPrice) }}</td>
+              <td class="py-3">¥{{ formatAmount(item.lineTotal ?? (Number(item.quantity || 0) * Number(item.unitPrice || 0))) }}</td>
             </tr>
           </tbody>
         </table>
@@ -181,13 +189,19 @@ const validationHint = computed(() => {
 });
 const canSubmit = computed(() => !validationHint.value);
 
+const sortOrdersByLatest = (source = []) => [...source].sort((left, right) => {
+  const rightTime = new Date(right?.orderDate || right?.createdAt || 0).getTime();
+  const leftTime = new Date(left?.orderDate || left?.createdAt || 0).getTime();
+  return rightTime - leftTime;
+});
+
 const loadOrders = async () => {
   error.value = '';
   selectedOrder.value = null;
   loading.value = true;
   try {
     const response = await customerApi.listMyOrders();
-    orders.value = response.data || [];
+    orders.value = sortOrdersByLatest(response.data || []);
   } catch (err) {
     orders.value = [];
     error.value = '';
@@ -198,7 +212,7 @@ const loadOrders = async () => {
 
 const loadProducts = async () => {
   try {
-    const response = await productApi.list();
+    const response = await productApi.list({ productType: 'FINISHED_GOOD' });
     products.value = response.data || [];
   } catch (err) {
     products.value = [];
@@ -254,7 +268,7 @@ const submitOrder = async () => {
 watch(
   () => realtime.state.lastMessage,
   (message) => {
-    if (message?.topic === '/topic/orders') {
+    if (message?.topic?.startsWith('/topic/orders/customer')) {
       loadOrders();
     }
   }
@@ -267,5 +281,8 @@ onMounted(() => {
 
 const formatAmount = (value) => (value || 0).toFixed(2);
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
+const formatNumber = (value) => Number(value || 0).toFixed(2);
+const formatProducts = (items) => (items || []).map((item) => item.product?.name || item.product?.sku || '-').join('，') || '-';
+const formatQuantity = (items) => formatNumber((items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0));
 </script>
 

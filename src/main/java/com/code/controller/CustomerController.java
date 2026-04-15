@@ -55,7 +55,7 @@ public class CustomerController {
     // portal: list orders for a specific customer id (kept for compatibility)
     @GetMapping("/{customerId}/orders")
     public List<SalesOrder> listOrders(@PathVariable Long customerId) {
-        return sortByBusinessStatus(salesOrderRepository.findByCustomerId(customerId));
+        return sortByLatestTime(salesOrderRepository.findByCustomerId(customerId));
     }
 
     @GetMapping("/me/orders")
@@ -64,7 +64,7 @@ public class CustomerController {
         if (customer == null) {
             return List.of();
         }
-        return sortByBusinessStatus(salesOrderRepository.findByCustomerId(customer.getId()));
+        return sortByLatestTime(salesOrderRepository.findByCustomerId(customer.getId()));
     }
 
     @PostMapping("/orders")
@@ -117,9 +117,23 @@ public class CustomerController {
         order.setTotalAmount(total);
 
         SalesOrder saved = salesOrderRepository.save(order);
-        NotificationMessage message = new NotificationMessage("ORDER_SUBMITTED", "SalesOrder", saved.getId(), saved, LocalDateTime.now());
-        messagingTemplate.convertAndSend("/topic/orders", message);
-        messagingTemplate.convertAndSend("/topic/orders/sales", message);
+        NotificationMessage customerMessage = new NotificationMessage(
+                "ORDER_SUBMITTED",
+                "SalesOrder",
+                saved.getId(),
+                new NoticePayload(saved, "您的订单 " + saved.getOrderNo() + " 已提交成功，请耐心等候。", saved.getShippingAddress()),
+                LocalDateTime.now()
+        );
+        NotificationMessage salesMessage = new NotificationMessage(
+                "ORDER_SUBMITTED",
+                "SalesOrder",
+                saved.getId(),
+                new NoticePayload(saved, "接收一条新的客户订单 " + saved.getOrderNo() + "，请审核。", saved.getShippingAddress()),
+                LocalDateTime.now()
+        );
+        messagingTemplate.convertAndSend(resolveCustomerTopic(saved), customerMessage);
+        messagingTemplate.convertAndSend("/topic/orders", salesMessage);
+        messagingTemplate.convertAndSend("/topic/orders/sales", salesMessage);
         return ResponseEntity.ok(saved);
     }
 
@@ -164,37 +178,15 @@ public class CustomerController {
         return customerRepository.findByEmail(email).orElse(null);
     }
 
-    private List<SalesOrder> sortByBusinessStatus(List<SalesOrder> source) {
+    private List<SalesOrder> sortByLatestTime(List<SalesOrder> source) {
         return source.stream()
                 .sorted(Comparator
-                        .comparingInt((SalesOrder order) -> statusRank(order.getStatus()))
-                        .thenComparing(SalesOrder::getOrderDate, Comparator.nullsLast(Comparator.reverseOrder()))
-                        .thenComparing(SalesOrder::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                        .comparing(SalesOrder::getOrderDate, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(SalesOrder::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(SalesOrder::getId, Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toList());
     }
 
-    private int statusRank(String status) {
-        String value = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
-        if (OrderWorkflowService.STATUS_PENDING_SALES_REVIEW.equals(status) || "PENDING_SALES_REVIEW".equals(value)) {
-            return 0;
-        }
-        if (OrderWorkflowService.STATUS_PENDING_WAREHOUSE_CHECK.equals(status) || "PENDING_WAREHOUSE_CHECK".equals(value)) {
-            return 1;
-        }
-        if ("已接单".equals(status) || "NEW".equals(value) || "ACCEPTED".equals(value)) {
-            return 2;
-        }
-        if ("生产中".equals(status) || "IN_PRODUCTION".equals(value) || "PRODUCING".equals(value)) {
-            return 3;
-        }
-        if ("已发货".equals(status) || "SHIPPED".equals(value)) {
-            return 4;
-        }
-        if ("已完成".equals(status) || "DONE".equals(value) || "COMPLETED".equals(value)) {
-            return 5;
-        }
-        return 99;
-    }
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
@@ -202,6 +194,41 @@ public class CustomerController {
 
     private String generateOrderNo() {
         return "SO-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+    }
+
+    private String resolveCustomerTopic(SalesOrder order) {
+        if (order == null || order.getCustomer() == null || order.getCustomer().getEmail() == null) {
+            return "/topic/orders/customer";
+        }
+        String normalized = order.getCustomer().getEmail().trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("(^-|-$)", "");
+        return normalized.isEmpty() ? "/topic/orders/customer" : "/topic/orders/customer/" + normalized;
+    }
+
+    public static class NoticePayload {
+        private final SalesOrder order;
+        private final String notificationTitle;
+        private final String notificationMeta;
+
+        public NoticePayload(SalesOrder order, String notificationTitle, String notificationMeta) {
+            this.order = order;
+            this.notificationTitle = notificationTitle;
+            this.notificationMeta = notificationMeta;
+        }
+
+        public SalesOrder getOrder() {
+            return order;
+        }
+
+        public String getNotificationTitle() {
+            return notificationTitle;
+        }
+
+        public String getNotificationMeta() {
+            return notificationMeta;
+        }
     }
 
     public static class CustomerOrderRequest {

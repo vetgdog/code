@@ -34,17 +34,23 @@ const pageTitle = computed(() => route.meta?.title || 'SteelOps Precision');
 const pageSubtitle = computed(() => route.meta?.subtitle || '');
 const roleLabel = computed(() => getRoleLabel(auth.state.role));
 
-const navItems = [
-  { label: '总览', icon: 'dashboard', to: '/', routeName: 'Dashboard' },
-  { label: '订单管理', icon: 'assignment', to: '/orders', routeName: 'Orders' },
-  { label: '生产任务', icon: 'factory', to: '/production', routeName: 'Production' },
-  { label: '库存管理', icon: 'inventory_2', to: '/inventory', routeName: 'Inventory' },
-  { label: '采购管理', icon: 'local_shipping', to: '/procurement', routeName: 'Procurement' },
-  { label: '质量追溯', icon: 'verified', to: '/quality', routeName: 'Quality' },
-  { label: '客户门户', icon: 'support_agent', to: '/customer', routeName: 'Customer' }
-];
+const navItems = computed(() => {
+  const procurementNavItem = auth.state.role === 'ROLE_SUPPLIER'
+    ? { label: '供应管理', icon: 'local_shipping', to: '/supply', routeName: 'Supply' }
+    : { label: '采购管理', icon: 'local_shipping', to: '/procurement', routeName: 'Procurement' };
 
-const visibleNavItems = computed(() => navItems.filter((item) => canAccessRouteName(auth.state.role, item.routeName)));
+  return [
+    { label: '总览', icon: 'dashboard', to: '/', routeName: 'Dashboard' },
+    { label: '订单管理', icon: 'assignment', to: '/orders', routeName: 'Orders' },
+    { label: '生产任务', icon: 'factory', to: '/production', routeName: 'Production' },
+    { label: '库存管理', icon: 'inventory_2', to: '/inventory', routeName: 'Inventory' },
+    procurementNavItem,
+    { label: '质量追溯', icon: 'verified', to: '/quality', routeName: 'Quality' },
+    { label: '客户门户', icon: 'support_agent', to: '/customer', routeName: 'Customer' }
+  ];
+});
+
+const visibleNavItems = computed(() => navItems.value.filter((item) => canAccessRouteName(auth.state.role, item.routeName)));
 
 const handleLogout = () => {
   realtime.disconnect();
@@ -54,10 +60,10 @@ const handleLogout = () => {
 };
 
 watch(
-  () => [auth.state.token, auth.state.role],
-  ([token, role]) => {
+  () => [auth.state.token, auth.state.role, auth.state.email],
+  ([token, role, email]) => {
     if (token) {
-      realtime.connect(role);
+      realtime.connect(role, email);
       return;
     }
     realtime.disconnect();

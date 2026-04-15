@@ -19,10 +19,19 @@ public class Product {
     @Column(nullable = false)
     private String name;
 
+    @Column(nullable = false)
+    private String productType = "FINISHED_GOOD";
+
+    private String materialCategory;
+    private String specification;
+    private String preferredSupplier;
+    private String origin;
     private String description;
     private String unit;
     private Double weight;
     private Double unitPrice = 0.0;
+    private Double safetyStock = 0.0;
+    private Integer leadTimeDays = 0;
 
     private LocalDateTime createdAt = LocalDateTime.now();
 }

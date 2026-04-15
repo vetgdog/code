@@ -29,8 +29,12 @@ const ROLE_CONFIG = {
       'production:update',
       'inventory:view',
       'inventory:edit',
+      'inventory:receive',
       'procurement:view',
       'procurement:create',
+      'procurement:raw-material-manage',
+      'procurement:supplier-act',
+      'procurement:notify-warehouse',
       'quality:view',
       'customer:view'
     ]
@@ -41,19 +45,19 @@ const ROLE_CONFIG = {
     permissions: ['customer:view']
   },
   ROLE_SUPPLIER: {
-    defaultRouteName: 'Procurement',
-    routeNames: ['Procurement', 'Inventory'],
-    permissions: ['procurement:view', 'procurement:create', 'inventory:view']
+    defaultRouteName: 'Supply',
+    routeNames: ['Supply'],
+    permissions: ['procurement:view', 'procurement:raw-material-manage', 'procurement:supplier-act']
   },
   ROLE_SALES_MANAGER: {
     defaultRouteName: 'Orders',
-    routeNames: ['Dashboard', 'Orders', 'Customer'],
-    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:review', 'customer:view']
+    routeNames: ['Dashboard', 'Orders'],
+    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:review']
   },
   ROLE_PROCUREMENT_MANAGER: {
     defaultRouteName: 'Procurement',
-    routeNames: ['Dashboard', 'Procurement', 'Inventory'],
-    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'inventory:view']
+    routeNames: ['Dashboard', 'Procurement'],
+    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'procurement:notify-warehouse']
   },
   ROLE_PRODUCTION_MANAGER: {
     defaultRouteName: 'Production',
@@ -62,8 +66,8 @@ const ROLE_CONFIG = {
   },
   ROLE_WAREHOUSE_MANAGER: {
     defaultRouteName: 'Inventory',
-    routeNames: ['Dashboard', 'Inventory', 'Orders'],
-    permissions: ['dashboard:view', 'inventory:view', 'inventory:edit', 'orders:view', 'orders:warehouse-check']
+    routeNames: ['Dashboard', 'Inventory', 'Orders', 'Procurement'],
+    permissions: ['dashboard:view', 'inventory:view', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check', 'procurement:view']
   },
   ROLE_QUALITY_INSPECTOR: {
     defaultRouteName: 'Quality',

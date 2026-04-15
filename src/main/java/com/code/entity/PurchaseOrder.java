@@ -25,6 +25,13 @@ public class PurchaseOrder {
     private String status = "CREATED";
     private Double totalAmount = 0.0;
     private Long createdBy;
+    private String supplierNote;
+    private String procurementNote;
+    private String warehouseNote;
+    private LocalDateTime shippedAt;
+    private LocalDateTime notifiedWarehouseAt;
+    private LocalDateTime receivedAt;
+    private LocalDateTime createdAt = LocalDateTime.now();
 
     @OneToMany(mappedBy = "purchaseOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PurchaseOrderItem> items;

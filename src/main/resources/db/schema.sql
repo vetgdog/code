@@ -71,10 +71,17 @@ CREATE TABLE IF NOT EXISTS `products` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY, -- 产品ID
   `sku` VARCHAR(64) NOT NULL UNIQUE, -- 产品SKU
   `name` VARCHAR(255) NOT NULL, -- 产品名称
+  `product_type` VARCHAR(32) NOT NULL DEFAULT 'FINISHED_GOOD', -- 产品类型（成品/原材料）
+  `material_category` VARCHAR(128), -- 原材料分类
+  `specification` VARCHAR(255), -- 规格型号
+  `preferred_supplier` VARCHAR(255), -- 首选供应商
+  `origin` VARCHAR(255), -- 原产地
   `description` TEXT, -- 产品描述
   `unit` VARCHAR(32), -- 单位
   `weight` DECIMAL(18,4), -- 重量
   `unit_price` DECIMAL(18,4) DEFAULT 0, -- 默认单价
+  `safety_stock` DECIMAL(18,4) DEFAULT 0, -- 安全库存
+  `lead_time_days` INT DEFAULT 0, -- 供货周期（天）
   `default_warehouse_id` BIGINT, -- 默认仓库ID
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_products_default_wh (default_warehouse_id -> warehouses.id)
@@ -211,7 +218,14 @@ CREATE TABLE IF NOT EXISTS `purchase_order` (
   `order_date` DATETIME DEFAULT CURRENT_TIMESTAMP, -- 订单日期
   `status` VARCHAR(50) DEFAULT 'CREATED', -- 订单状态
   `total_amount` DECIMAL(18,2) DEFAULT 0, -- 总金额
-  `created_by` BIGINT -- 创建人ID
+  `created_by` BIGINT, -- 创建人ID
+  `supplier_note` VARCHAR(500), -- 供应商备注
+  `procurement_note` VARCHAR(500), -- 采购备注
+  `warehouse_note` VARCHAR(500), -- 仓库备注
+  `shipped_at` DATETIME, -- 发货时间
+  `notified_warehouse_at` DATETIME, -- 通知仓库时间
+  `received_at` DATETIME, -- 收货入库时间
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_po_supplier (supplier_id -> suppliers.id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -250,8 +264,10 @@ CREATE TABLE IF NOT EXISTS `stock_transaction` (
   `warehouse_id` BIGINT, -- 仓库ID
   `change_quantity` DECIMAL(18,4) NOT NULL, -- 数量变化
   `transaction_type` VARCHAR(50) NOT NULL, -- 交易类型
+  `lot` VARCHAR(100), -- 批次号
   `related_type` VARCHAR(50), -- 相关类型
   `related_id` BIGINT, -- 相关ID
+  `remark` VARCHAR(500), -- 备注
   `created_by` BIGINT, -- 创建人ID
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_st_product (product_id -> products.id)

@@ -20,6 +20,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Optional;
+import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -137,6 +138,33 @@ class CustomerControllerTest {
 
         assertEquals(403, exception.getStatus().value());
         assertEquals("当前账号没有客户下单权限，请重新登录客户账号后重试", exception.getReason());
+    }
+
+    @Test
+    void listMyOrdersReturnsNewestOrdersFirst() {
+        when(authentication.getName()).thenReturn("customer@example.com");
+
+        Customer customer = new Customer();
+        customer.setId(7L);
+        when(customerRepository.findByEmail("customer@example.com")).thenReturn(Optional.of(customer));
+
+        SalesOrder older = new SalesOrder();
+        older.setId(1L);
+        older.setOrderNo("SO-OLD");
+        older.setOrderDate(LocalDateTime.of(2026, 4, 1, 10, 0));
+
+        SalesOrder newer = new SalesOrder();
+        newer.setId(2L);
+        newer.setOrderNo("SO-NEW");
+        newer.setOrderDate(LocalDateTime.of(2026, 4, 15, 10, 0));
+
+        when(salesOrderRepository.findByCustomerId(7L)).thenReturn(List.of(older, newer));
+
+        List<SalesOrder> result = customerController.listMyOrders(authentication);
+
+        assertEquals(2, result.size());
+        assertEquals("SO-NEW", result.get(0).getOrderNo());
+        assertEquals("SO-OLD", result.get(1).getOrderNo());
     }
 }
 

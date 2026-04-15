@@ -125,7 +125,7 @@ watch(
     if (!message) {
       return;
     }
-    if (message.topic === '/topic/orders') {
+    if (message.topic?.startsWith('/topic/orders')) {
       fetchOrders();
     }
   }
