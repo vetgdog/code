@@ -117,9 +117,23 @@ public class CustomerController {
         order.setTotalAmount(total);
 
         SalesOrder saved = salesOrderRepository.save(order);
-        NotificationMessage message = new NotificationMessage("ORDER_SUBMITTED", "SalesOrder", saved.getId(), saved, LocalDateTime.now());
-        messagingTemplate.convertAndSend("/topic/orders", message);
-        messagingTemplate.convertAndSend("/topic/orders/sales", message);
+        NotificationMessage customerMessage = new NotificationMessage(
+                "ORDER_SUBMITTED",
+                "SalesOrder",
+                saved.getId(),
+                new NoticePayload(saved, "您的订单 " + saved.getOrderNo() + " 已提交成功，请耐心等候。", saved.getShippingAddress()),
+                LocalDateTime.now()
+        );
+        NotificationMessage salesMessage = new NotificationMessage(
+                "ORDER_SUBMITTED",
+                "SalesOrder",
+                saved.getId(),
+                new NoticePayload(saved, "接收一条新的客户订单 " + saved.getOrderNo() + "，请审核。", saved.getShippingAddress()),
+                LocalDateTime.now()
+        );
+        messagingTemplate.convertAndSend(resolveCustomerTopic(saved), customerMessage);
+        messagingTemplate.convertAndSend("/topic/orders", salesMessage);
+        messagingTemplate.convertAndSend("/topic/orders/sales", salesMessage);
         return ResponseEntity.ok(saved);
     }
 
@@ -202,6 +216,41 @@ public class CustomerController {
 
     private String generateOrderNo() {
         return "SO-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+    }
+
+    private String resolveCustomerTopic(SalesOrder order) {
+        if (order == null || order.getCustomer() == null || order.getCustomer().getEmail() == null) {
+            return "/topic/orders/customer";
+        }
+        String normalized = order.getCustomer().getEmail().trim().toLowerCase(Locale.ROOT)
+                .replaceAll("[^a-z0-9]", "-")
+                .replaceAll("-+", "-")
+                .replaceAll("(^-|-$)", "");
+        return normalized.isEmpty() ? "/topic/orders/customer" : "/topic/orders/customer/" + normalized;
+    }
+
+    public static class NoticePayload {
+        private final SalesOrder order;
+        private final String notificationTitle;
+        private final String notificationMeta;
+
+        public NoticePayload(SalesOrder order, String notificationTitle, String notificationMeta) {
+            this.order = order;
+            this.notificationTitle = notificationTitle;
+            this.notificationMeta = notificationMeta;
+        }
+
+        public SalesOrder getOrder() {
+            return order;
+        }
+
+        public String getNotificationTitle() {
+            return notificationTitle;
+        }
+
+        public String getNotificationMeta() {
+            return notificationMeta;
+        }
     }
 
     public static class CustomerOrderRequest {

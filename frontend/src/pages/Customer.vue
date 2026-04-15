@@ -254,7 +254,7 @@ const submitOrder = async () => {
 watch(
   () => realtime.state.lastMessage,
   (message) => {
-    if (message?.topic === '/topic/orders') {
+    if (message?.topic?.startsWith('/topic/orders/customer')) {
       loadOrders();
     }
   }

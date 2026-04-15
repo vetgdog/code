@@ -250,8 +250,10 @@ CREATE TABLE IF NOT EXISTS `stock_transaction` (
   `warehouse_id` BIGINT, -- 仓库ID
   `change_quantity` DECIMAL(18,4) NOT NULL, -- 数量变化
   `transaction_type` VARCHAR(50) NOT NULL, -- 交易类型
+  `lot` VARCHAR(100), -- 批次号
   `related_type` VARCHAR(50), -- 相关类型
   `related_id` BIGINT, -- 相关ID
+  `remark` VARCHAR(500), -- 备注
   `created_by` BIGINT, -- 创建人ID
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_st_product (product_id -> products.id)

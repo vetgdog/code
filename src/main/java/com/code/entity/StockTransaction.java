@@ -25,8 +25,10 @@ public class StockTransaction {
 
     private Double changeQuantity;
     private String transactionType;
+    private String lot;
     private String relatedType;
     private Long relatedId;
+    private String remark;
     private Long createdBy;
     private LocalDateTime createdAt = LocalDateTime.now();
 }

@@ -391,7 +391,7 @@ const handleSalesDecision = async (orderId, decision) => {
     await orderApi.salesDecision(orderId, decision, {});
     workflowMessage.value = decision === 'REJECT'
       ? `订单 ${orderId} 已拒绝。`
-      : `订单 ${orderId} 订单信息已发送给仓库管理员。`;
+      : `订单 ${orderId} 已通知仓库管理员查看。`;
     await loadOrders();
   } catch (error) {
     workflowError.value = error?.response?.data?.message || error?.response?.data || '操作失败。';
@@ -415,7 +415,7 @@ const handleWarehouseShip = async (orderId) => {
   workflowError.value = '';
   try {
     await orderApi.warehouseShip(orderId, {});
-    workflowMessage.value = `订单 ${orderId} 订单已发货，并已通知销售管理员。`;
+    workflowMessage.value = `订单 ${orderId} 已发货，顾客与销售管理员已收到通知。`;
     await loadOrders();
   } catch (error) {
     workflowError.value = error?.response?.data?.message || error?.response?.data || '发货失败。';
@@ -427,7 +427,7 @@ const handleProductionComplete = async (orderId) => {
   workflowError.value = '';
   try {
     await orderApi.productionComplete(orderId, {});
-    workflowMessage.value = `订单 ${orderId} 已通知仓库重新核查库存。`;
+    workflowMessage.value = `订单 ${orderId} 已完成生产，系统已自动入库并通知仓库管理员。`;
     await loadOrders();
   } catch (error) {
     workflowError.value = error?.response?.data?.message || error?.response?.data || '生产回传失败。';
@@ -441,8 +441,8 @@ const handleWarehouseReview = async (orderId) => {
     const response = await orderApi.warehouseReview(orderId, {});
     const shortageCount = response?.data?.shortages?.length || 0;
     workflowMessage.value = shortageCount > 0
-      ? `生产订单已成功发送至生产管理员。`
-      : `订单 ${orderId} 库存核验通过，可执行发货。`;
+      ? `已将生产计划发送给生产管理员处理。`
+      : `订单 ${orderId} 库存核验通过，并已通知销售管理员。`;
     await loadOrders();
   } catch (error) {
     workflowError.value = error?.response?.data?.message || error?.response?.data || '库存核查失败。';

@@ -54,10 +54,10 @@ const handleLogout = () => {
 };
 
 watch(
-  () => [auth.state.token, auth.state.role],
-  ([token, role]) => {
+  () => [auth.state.token, auth.state.role, auth.state.email],
+  ([token, role, email]) => {
     if (token) {
-      realtime.connect(role);
+      realtime.connect(role, email);
       return;
     }
     realtime.disconnect();

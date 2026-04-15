@@ -22,11 +22,14 @@ export const orderApi = {
 export const productionApi = {
   createTask: (payload) => client.post('/production/tasks', payload),
   listByUser: (userId) => client.get(`/production/tasks/user/${userId}`),
+  listRecords: (params = {}) => client.get('/production/records', { params }),
   updateStatus: (taskId, status) => client.post(`/production/tasks/${taskId}/status?status=${encodeURIComponent(status)}`)
 };
 
 export const inventoryApi = {
-  list: () => client.get('/inventory'),
+  list: (params = {}) => client.get('/inventory', { params }),
+  listWarehouses: () => client.get('/inventory/warehouses'),
+  listTransactions: (params = {}) => client.get('/inventory/transactions', { params }),
   stockIn: (payload) => client.post('/inventory/stock-in', payload),
   stockOut: (payload) => client.post('/inventory/stock-out', payload)
 };
