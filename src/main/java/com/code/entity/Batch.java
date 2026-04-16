@@ -23,6 +23,14 @@ public class Batch {
     private Double quantity;
     private LocalDateTime manufactureDate;
     private LocalDateTime expiryDate;
+    private String sourceOrderNo;
+    private String qualityStatus = "待检";
+    private String qualityRemark;
+    private LocalDateTime qualityInspectedAt;
+    private Long qualityInspectorId;
+    private String qualityInspectorName;
+    private String productionManagerEmail;
+    private String productionManagerName;
 
     @ManyToOne
     @JoinColumn(name = "production_task_id")

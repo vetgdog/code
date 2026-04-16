@@ -1,13 +1,17 @@
 package com.code.controller;
 
+import com.code.entity.Batch;
 import com.code.entity.ProductionPlan;
 import com.code.entity.ProductionTask;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.ProductionTaskRepository;
+import com.code.service.QualityService;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -30,6 +34,9 @@ public class ProductionController {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private QualityService qualityService;
 
     @PostMapping("/tasks")
     public ProductionTask createTask(@RequestBody ProductionTask task) {
@@ -65,6 +72,15 @@ public class ProductionController {
                 .collect(Collectors.toList());
     }
 
+    @GetMapping("/quality-alerts")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    public List<ProductionQualityAlertView> listQualityAlerts(Authentication authentication) {
+        String email = authentication == null ? "" : authentication.getName();
+        return qualityService.listProductionAlerts(email).stream()
+                .map(this::toQualityAlertView)
+                .collect(Collectors.toList());
+    }
+
     @PostMapping("/tasks/{taskId}/status")
     public ProductionTask updateStatus(@PathVariable Long taskId, @RequestParam String status) {
         ProductionTask t = productionTaskRepository.findById(taskId).orElseThrow(() -> new RuntimeException("Task not found"));
@@ -91,6 +107,21 @@ public class ProductionController {
                 plan.getStartDate(),
                 resolveCompletedAt(plan),
                 plan.getCreatedAt()
+        );
+    }
+
+    private ProductionQualityAlertView toQualityAlertView(Batch batch) {
+        return new ProductionQualityAlertView(
+                batch.getId(),
+                batch.getBatchNo(),
+                batch.getSourceOrderNo(),
+                batch.getProduct() == null ? null : batch.getProduct().getSku(),
+                batch.getProduct() == null ? null : batch.getProduct().getName(),
+                batch.getQuantity(),
+                batch.getQualityStatus(),
+                batch.getQualityRemark(),
+                batch.getQualityInspectorName(),
+                batch.getQualityInspectedAt()
         );
     }
 
@@ -225,6 +256,81 @@ public class ProductionController {
 
         public LocalDateTime getCreatedAt() {
             return createdAt;
+        }
+    }
+
+    public static class ProductionQualityAlertView {
+        private final Long id;
+        private final String batchNo;
+        private final String orderNo;
+        private final String productSku;
+        private final String productName;
+        private final Double quantity;
+        private final String qualityStatus;
+        private final String qualityRemark;
+        private final String inspectorName;
+        private final LocalDateTime inspectedAt;
+
+        public ProductionQualityAlertView(Long id,
+                                          String batchNo,
+                                          String orderNo,
+                                          String productSku,
+                                          String productName,
+                                          Double quantity,
+                                          String qualityStatus,
+                                          String qualityRemark,
+                                          String inspectorName,
+                                          LocalDateTime inspectedAt) {
+            this.id = id;
+            this.batchNo = batchNo;
+            this.orderNo = orderNo;
+            this.productSku = productSku;
+            this.productName = productName;
+            this.quantity = quantity;
+            this.qualityStatus = qualityStatus;
+            this.qualityRemark = qualityRemark;
+            this.inspectorName = inspectorName;
+            this.inspectedAt = inspectedAt;
+        }
+
+        public Long getId() {
+            return id;
+        }
+
+        public String getBatchNo() {
+            return batchNo;
+        }
+
+        public String getOrderNo() {
+            return orderNo;
+        }
+
+        public String getProductSku() {
+            return productSku;
+        }
+
+        public String getProductName() {
+            return productName;
+        }
+
+        public Double getQuantity() {
+            return quantity;
+        }
+
+        public String getQualityStatus() {
+            return qualityStatus;
+        }
+
+        public String getQualityRemark() {
+            return qualityRemark;
+        }
+
+        public String getInspectorName() {
+            return inspectorName;
+        }
+
+        public LocalDateTime getInspectedAt() {
+            return inspectedAt;
         }
     }
 }

@@ -150,6 +150,8 @@ CREATE TABLE IF NOT EXISTS `production_plan` (
   `end_date` DATETIME, -- 结束日期
   `status` VARCHAR(50) DEFAULT 'PLANNED', -- 计划状态
   `created_by` BIGINT, -- 创建人ID
+  `completed_by_email` VARCHAR(200), -- 完工生产管理员邮箱
+  `completed_by_name` VARCHAR(200), -- 完工生产管理员姓名
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_productionplan_product (product_id -> products.id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -270,6 +272,14 @@ CREATE TABLE IF NOT EXISTS `batch` (
   `quantity` DECIMAL(18,4), -- 数量
   `manufacture_date` DATETIME, -- 生产日期
   `expiry_date` DATETIME, -- 过期日期
+  `source_order_no` VARCHAR(100), -- 来源订单号
+  `quality_status` VARCHAR(50) DEFAULT '待检', -- 质检状态
+  `quality_remark` VARCHAR(500), -- 质检备注
+  `quality_inspected_at` DATETIME, -- 最新质检时间
+  `quality_inspector_id` BIGINT, -- 最新质检员ID
+  `quality_inspector_name` VARCHAR(200), -- 最新质检员姓名
+  `production_manager_email` VARCHAR(200), -- 责任生产管理员邮箱
+  `production_manager_name` VARCHAR(200), -- 责任生产管理员姓名
   `production_task_id` BIGINT, -- 生产任务ID
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_batch_product (product_id -> products.id)
@@ -282,9 +292,13 @@ CREATE TABLE IF NOT EXISTS `quality_record` (
   `batch_id` BIGINT, -- 批次ID
   `product_id` BIGINT, -- 产品ID
   `inspector` BIGINT, -- 检验员ID
+  `inspector_name` VARCHAR(200), -- 检验员姓名
   `inspection_date` DATETIME DEFAULT CURRENT_TIMESTAMP, -- 检验日期
   `result` VARCHAR(50), -- 检验结果
-  `remarks` TEXT -- 备注
+  `remarks` TEXT, -- 备注
+  `notified_production_manager_email` VARCHAR(200), -- 已通知的生产管理员邮箱
+  `notification_sent` TINYINT(1) DEFAULT 0, -- 是否已发送通知
+  `notified_at` DATETIME -- 通知时间
   -- 外键约束：fk_qr_batch (batch_id -> batch.id)
   -- 外键约束：fk_qr_product (product_id -> products.id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

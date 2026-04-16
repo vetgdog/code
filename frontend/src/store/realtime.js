@@ -35,14 +35,28 @@ const buildSupplierTopics = (email = '') => {
   return normalized ? ['/topic/procurement/supplier', `/topic/procurement/supplier/${normalized}`] : ['/topic/procurement/supplier'];
 };
 
+const buildProductionTopics = (email = '') => {
+  const normalized = String(email || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  return normalized
+    ? ['/topic/orders/production', '/topic/production', `/topic/production/manager/${normalized}`]
+    : ['/topic/orders/production', '/topic/production'];
+};
+
 const ROLE_TOPICS = {
   ROLE_CUSTOMER: ({ email }) => buildCustomerTopics(email),
   ROLE_SALES_MANAGER: () => ['/topic/orders/sales'],
   ROLE_WAREHOUSE_MANAGER: () => ['/topic/orders/warehouse', '/topic/procurement/warehouse'],
   ROLE_PROCUREMENT_MANAGER: () => ['/topic/procurement/manager', '/topic/procurement'],
   ROLE_SUPPLIER: ({ email }) => buildSupplierTopics(email),
-  ROLE_PRODUCTION_MANAGER: () => ['/topic/orders/production', '/topic/production'],
-  ROLE_ADMIN: () => ['/topic/orders', '/topic/orders/sales', '/topic/orders/warehouse', '/topic/orders/production', '/topic/production', '/topic/procurement', '/topic/procurement/manager', '/topic/procurement/warehouse']
+  ROLE_PRODUCTION_MANAGER: ({ email }) => buildProductionTopics(email),
+  ROLE_QUALITY_INSPECTOR: () => ['/topic/quality'],
+  ROLE_ADMIN: ({ email }) => ['/topic/orders', '/topic/orders/sales', '/topic/orders/warehouse', ...buildProductionTopics(email), '/topic/procurement', '/topic/procurement/manager', '/topic/procurement/warehouse', '/topic/quality']
 };
 
 const resolveTopicsByRole = (role, email = '') => {

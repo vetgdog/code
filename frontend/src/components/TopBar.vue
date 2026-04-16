@@ -136,6 +136,12 @@ const formatNotificationTitle = (event) => {
       return '采购到货待仓库确认入库。';
     case 'PROCUREMENT_ORDER_WAREHOUSED':
       return '采购单已确认收货并自动入库。';
+    case 'QUALITY_PENDING':
+      return '有新的成品批次待质检，请查看。';
+    case 'QUALITY_PASSED':
+      return '成品批次质检合格。';
+    case 'QUALITY_REWORK_REQUIRED':
+      return '发现不合格成品，已通知责任生产管理员。';
     default:
       return `${event?.messageType || '系统消息'} · ${event?.entity || 'Event'}`;
   }

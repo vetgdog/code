@@ -1,17 +1,21 @@
 package com.code.service;
 
+import com.code.entity.Batch;
 import com.code.entity.InventoryItem;
 import com.code.entity.OrderItem;
 import com.code.entity.ProductionPlan;
 import com.code.entity.Product;
 import com.code.entity.SalesOrder;
 import com.code.entity.StockTransaction;
+import com.code.entity.User;
 import com.code.entity.Warehouse;
+import com.code.repository.BatchRepository;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.SalesOrderRepository;
 import com.code.repository.StockTransactionRepository;
+import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
@@ -53,7 +57,13 @@ public class OrderWorkflowService {
     private StockTransactionRepository stockTransactionRepository;
 
     @Autowired
+    private BatchRepository batchRepository;
+
+    @Autowired
     private WarehouseRepository warehouseRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Autowired
     private NotificationService notificationService;
@@ -145,9 +155,12 @@ public class OrderWorkflowService {
         }
 
         List<ProductionPlan> plans = productionPlanRepository.findByPlanNoStartingWith("PLAN-" + order.getOrderNo() + "-");
+        User productionManager = resolveUserByEmail(operator);
         for (ProductionPlan plan : plans) {
             plan.setStatus("DONE");
             plan.setEndDate(LocalDateTime.now());
+            plan.setCompletedByEmail(blankToNull(operator));
+            plan.setCompletedByName(resolveDisplayName(productionManager, operator));
         }
         if (!plans.isEmpty()) {
             productionPlanRepository.saveAll(plans);
@@ -270,13 +283,54 @@ public class OrderWorkflowService {
             }
             Warehouse warehouse = resolveWarehouseForProduct(product.getId());
             InventoryItem item = findOrCreateInventoryItem(product, warehouse);
+            Batch batch = createOrUpdateBatch(order, plan, product, quantity);
             item.setQuantity(safeNumber(item.getQuantity()) + quantity);
+            item.setLot(batch.getBatchNo());
             inventoryItemRepository.save(item);
-            createStockTransaction(product, warehouse, quantity, "IN", "PRODUCTION_PLAN", plan.getId(), plan.getCreatedBy());
+            createStockTransaction(product, warehouse, quantity, "IN", "PRODUCTION_PLAN", plan.getId(), plan.getCreatedBy(), batch.getBatchNo());
             plan.setStatus("WAREHOUSED");
+            notificationService.broadcast(
+                    "/topic/quality",
+                    new NotificationMessage(
+                            "QUALITY_PENDING",
+                            "Batch",
+                            batch.getId(),
+                            new QualityService.QualityNoticePayload(
+                                    batch,
+                                    "批次 " + batch.getBatchNo() + " 已入库待质检，请查看。",
+                                    product.getName() + " / 来源订单 " + safeOrderNo(batch.getSourceOrderNo())
+                            ),
+                            LocalDateTime.now()
+                    )
+            );
         }
         productionPlanRepository.saveAll(completedPlans);
         return completedPlans;
+    }
+
+    private Batch createOrUpdateBatch(SalesOrder order, ProductionPlan plan, Product product, double quantity) {
+        String sourceOrderNo = order == null ? resolveOrderNoFromPlanNo(plan.getPlanNo()) : safeOrderNo(order.getOrderNo());
+        Batch batch = batchRepository.findBySourceOrderNoAndProductId(sourceOrderNo, product.getId())
+                .orElseGet(Batch::new);
+        if (batch.getBatchNo() == null || batch.getBatchNo().isBlank()) {
+            batch.setBatchNo(generateBatchNo());
+        }
+        batch.setProduct(product);
+        batch.setQuantity(quantity);
+        batch.setManufactureDate(plan.getEndDate() == null ? LocalDateTime.now() : plan.getEndDate());
+        batch.setSourceOrderNo(sourceOrderNo);
+        batch.setQualityStatus(QualityService.STATUS_PENDING);
+        batch.setQualityRemark(null);
+        batch.setQualityInspectedAt(null);
+        batch.setQualityInspectorId(null);
+        batch.setQualityInspectorName(null);
+        batch.setProductionManagerEmail(blankToNull(plan.getCompletedByEmail()));
+        batch.setProductionManagerName(blankToNull(plan.getCompletedByName()));
+        return batchRepository.save(batch);
+    }
+
+    private String generateBatchNo() {
+        return "BT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
     }
 
     private SalesOrder getOrder(Long orderId) {
@@ -445,12 +499,24 @@ public class OrderWorkflowService {
                                         String relatedType,
                                         Long relatedId,
                                         Long createdBy) {
+        createStockTransaction(product, warehouse, quantity, type, relatedType, relatedId, createdBy, null);
+    }
+
+    private void createStockTransaction(Product product,
+                                        Warehouse warehouse,
+                                        double quantity,
+                                        String type,
+                                        String relatedType,
+                                        Long relatedId,
+                                        Long createdBy,
+                                        String lot) {
         StockTransaction tx = new StockTransaction();
         tx.setTransactionNo("ST-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
         tx.setProduct(product);
         tx.setWarehouse(warehouse);
         tx.setChangeQuantity(quantity);
         tx.setTransactionType(type);
+        tx.setLot(blankToNull(lot));
         tx.setRelatedType(relatedType);
         tx.setRelatedId(relatedId);
         tx.setCreatedBy(createdBy);
@@ -462,6 +528,48 @@ public class OrderWorkflowService {
         return inventoryItemRepository.findByProductId(productId).stream()
                 .mapToDouble(item -> Math.max(0, safeNumber(item.getQuantity()) - safeNumber(item.getReservedQuantity())))
                 .sum();
+    }
+
+    private String resolveOrderNoFromPlanNo(String planNo) {
+        if (planNo == null || !planNo.startsWith("PLAN-")) {
+            return "";
+        }
+        String remaining = planNo.substring("PLAN-".length());
+        int lastSeparator = remaining.lastIndexOf('-');
+        if (lastSeparator <= 0) {
+            return remaining;
+        }
+        String withoutTimestamp = remaining.substring(0, lastSeparator);
+        int productSeparator = withoutTimestamp.lastIndexOf('-');
+        if (productSeparator <= 0) {
+            return withoutTimestamp;
+        }
+        return withoutTimestamp.substring(0, productSeparator);
+    }
+
+    private String safeOrderNo(String orderNo) {
+        return orderNo == null || orderNo.isBlank() ? "-" : orderNo;
+    }
+
+    private String blankToNull(String value) {
+        return value == null || value.trim().isEmpty() ? null : value.trim();
+    }
+
+    private User resolveUserByEmail(String email) {
+        if (email == null || email.isBlank()) {
+            return null;
+        }
+        return userRepository.findByEmailIgnoreCase(email.trim()).orElse(null);
+    }
+
+    private String resolveDisplayName(User user, String fallback) {
+        if (user != null) {
+            String name = user.getName();
+            if (name != null && !name.isBlank()) {
+                return name;
+            }
+        }
+        return blankToNull(fallback);
     }
 
     private NotificationMessage buildOrderMessage(String type, SalesOrder order, String operator) {

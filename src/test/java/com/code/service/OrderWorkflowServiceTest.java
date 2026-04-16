@@ -1,17 +1,21 @@
 package com.code.service;
 
+import com.code.entity.Batch;
 import com.code.entity.Customer;
 import com.code.entity.InventoryItem;
 import com.code.entity.OrderItem;
 import com.code.entity.ProductionPlan;
 import com.code.entity.Product;
 import com.code.entity.SalesOrder;
+import com.code.entity.User;
 import com.code.entity.Warehouse;
+import com.code.repository.BatchRepository;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.SalesOrderRepository;
 import com.code.repository.StockTransactionRepository;
+import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
 import com.code.websocket.NotificationService;
 import org.junit.jupiter.api.Test;
@@ -25,7 +29,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -57,7 +61,13 @@ class OrderWorkflowServiceTest {
     private StockTransactionRepository stockTransactionRepository;
 
     @Mock
+    private BatchRepository batchRepository;
+
+    @Mock
     private WarehouseRepository warehouseRepository;
+
+    @Mock
+    private UserRepository userRepository;
 
     @Mock
     private NotificationService notificationService;
@@ -122,14 +132,22 @@ class OrderWorkflowServiceTest {
         plan.setCreatedBy(99L);
         plan.setStatus("PLANNED");
 
+        User productionManager = new User();
+        productionManager.setId(99L);
+        productionManager.setEmail("prod@test.com");
+        productionManager.setFullName("生产主管甲");
+
         when(salesOrderRepository.findById(3L)).thenReturn(Optional.of(order));
         when(productionPlanRepository.findByPlanNoStartingWith("PLAN-" + order.getOrderNo() + "-")).thenReturn(List.of(plan));
+        when(userRepository.findByEmailIgnoreCase("prod@test.com")).thenReturn(Optional.of(productionManager));
         when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         SalesOrder result = orderWorkflowService.markProductionCompleted(3L, "prod@test.com", "done");
 
         assertEquals(OrderWorkflowService.STATUS_PENDING_WAREHOUSE_CHECK, result.getStatus());
         assertEquals("DONE", plan.getStatus());
+        assertEquals("prod@test.com", plan.getCompletedByEmail());
+        assertEquals("生产主管甲", plan.getCompletedByName());
         verify(productionPlanRepository).saveAll(any());
         verify(inventoryItemRepository, never()).save(any(InventoryItem.class));
         verify(notificationService).broadcast(eq("/topic/orders/warehouse"), any());
@@ -144,17 +162,30 @@ class OrderWorkflowServiceTest {
         plan.setProduct(order.getItems().get(0).getProduct());
         plan.setPlannedQuantity(4.0);
         plan.setStatus("DONE");
+        plan.setCompletedByEmail("prod@test.com");
+        plan.setCompletedByName("生产主管甲");
 
         Warehouse warehouse = new Warehouse();
         warehouse.setId(8L);
         warehouse.setName("成品仓");
 
         java.util.List<InventoryItem> inventoryState = new java.util.ArrayList<>();
+        java.util.List<Batch> batchState = new java.util.ArrayList<>();
 
         when(salesOrderRepository.findById(6L)).thenReturn(Optional.of(order));
         when(productionPlanRepository.findByPlanNoStartingWithAndStatus("PLAN-" + order.getOrderNo() + "-", "DONE")).thenReturn(List.of(plan));
         when(inventoryItemRepository.findByProductId(600L)).thenAnswer(invocation -> inventoryState);
         when(warehouseRepository.findAll()).thenReturn(List.of(warehouse));
+        when(batchRepository.findBySourceOrderNoAndProductId(order.getOrderNo(), 600L)).thenReturn(Optional.empty());
+        when(batchRepository.save(any(Batch.class))).thenAnswer(invocation -> {
+            Batch saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(21L);
+            }
+            batchState.clear();
+            batchState.add(saved);
+            return saved;
+        });
         when(inventoryItemRepository.save(any(InventoryItem.class))).thenAnswer(invocation -> {
             InventoryItem saved = invocation.getArgument(0);
             inventoryState.clear();
@@ -168,8 +199,15 @@ class OrderWorkflowServiceTest {
 
         assertEquals(OrderWorkflowService.STATUS_ACCEPTED, result.getStatus());
         assertEquals("WAREHOUSED", plan.getStatus());
+        assertFalse(batchState.isEmpty());
+        assertEquals(QualityService.STATUS_PENDING, batchState.get(0).getQualityStatus());
+        assertEquals("prod@test.com", batchState.get(0).getProductionManagerEmail());
+        assertEquals(order.getOrderNo(), batchState.get(0).getSourceOrderNo());
         verify(inventoryItemRepository).save(any(InventoryItem.class));
         verify(notificationService).broadcast(eq("/topic/orders/sales"), any());
+        verify(notificationService).broadcast(eq("/topic/quality"), any());
+        verify(batchRepository).save(any(Batch.class));
+        verify(stockTransactionRepository).save(any());
     }
 
     @Test

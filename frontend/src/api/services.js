@@ -25,6 +25,7 @@ export const productionApi = {
   createTask: (payload) => client.post('/production/tasks', payload),
   listByUser: (userId) => client.get(`/production/tasks/user/${userId}`),
   listRecords: (params = {}) => client.get('/production/records', { params }),
+  listQualityAlerts: () => client.get('/production/quality-alerts'),
   updateStatus: (taskId, status) => client.post(`/production/tasks/${taskId}/status?status=${encodeURIComponent(status)}`)
 };
 
@@ -59,8 +60,10 @@ export const procurementApi = {
 };
 
 export const qualityApi = {
+  listBatches: (params = {}) => client.get('/quality/batches', { params }),
   getBatchByNo: (batchNo) => client.get(`/quality/batch/${encodeURIComponent(batchNo)}`),
-  getRecords: (batchId) => client.get(`/quality/batch/${batchId}/records`)
+  getRecords: (batchId) => client.get(`/quality/batch/${batchId}/records`),
+  inspectBatch: (batchId, payload) => client.post(`/quality/batch/${batchId}/inspect`, payload)
 };
 
 export const productApi = {

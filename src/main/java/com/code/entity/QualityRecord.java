@@ -22,8 +22,12 @@ public class QualityRecord {
     private Product product;
 
     private Long inspector;
+    private String inspectorName;
     private LocalDateTime inspectionDate = LocalDateTime.now();
     private String result;
     private String remarks;
+    private String notifiedProductionManagerEmail;
+    private Boolean notificationSent = false;
+    private LocalDateTime notifiedAt;
 }
 

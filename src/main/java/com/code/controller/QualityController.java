@@ -2,11 +2,15 @@ package com.code.controller;
 
 import com.code.entity.Batch;
 import com.code.entity.QualityRecord;
-import com.code.repository.BatchRepository;
-import com.code.repository.QualityRecordRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.code.service.QualityService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -16,20 +20,64 @@ import java.util.List;
 @RequestMapping("/api/v1/quality")
 public class QualityController {
 
-    @Autowired
-    private BatchRepository batchRepository;
+    private final QualityService qualityService;
 
-    @Autowired
-    private QualityRecordRepository qualityRecordRepository;
+    public QualityController(QualityService qualityService) {
+        this.qualityService = qualityService;
+    }
+
+    @GetMapping("/batches")
+    @PreAuthorize("hasAnyRole('QUALITY_INSPECTOR','ADMIN')")
+    public List<Batch> listBatches(@RequestParam(required = false) String keyword,
+                                   @RequestParam(required = false) String status) {
+        return qualityService.listBatches(keyword, status);
+    }
 
     @GetMapping("/batch/{batchNo}")
+    @PreAuthorize("hasAnyRole('QUALITY_INSPECTOR','ADMIN')")
     public Batch getByBatchNo(@PathVariable String batchNo) {
-        return batchRepository.findAll().stream().filter(b -> b.getBatchNo().equals(batchNo)).findFirst().orElseThrow(() -> new RuntimeException("Batch not found"));
+        return qualityService.getBatchByNo(batchNo);
     }
 
     @GetMapping("/batch/{batchId}/records")
+    @PreAuthorize("hasAnyRole('QUALITY_INSPECTOR','ADMIN')")
     public List<QualityRecord> records(@PathVariable Long batchId) {
-        return qualityRecordRepository.findAll().stream().filter(r -> r.getBatch() != null && r.getBatch().getId().equals(batchId)).toList();
+        return qualityService.listRecords(batchId);
+    }
+
+    @PostMapping("/batch/{batchId}/inspect")
+    @PreAuthorize("hasAnyRole('QUALITY_INSPECTOR','ADMIN')")
+    public ResponseEntity<Batch> inspect(@PathVariable Long batchId,
+                                         @RequestBody InspectRequest request,
+                                         Authentication authentication) {
+        Batch batch = qualityService.inspectBatch(
+                batchId,
+                request == null ? "" : request.getResult(),
+                request == null ? "" : request.getRemarks(),
+                authentication == null ? "" : authentication.getName()
+        );
+        return ResponseEntity.ok(batch);
+    }
+
+    public static class InspectRequest {
+        private String result;
+        private String remarks;
+
+        public String getResult() {
+            return result;
+        }
+
+        public void setResult(String result) {
+            this.result = result;
+        }
+
+        public String getRemarks() {
+            return remarks;
+        }
+
+        public void setRemarks(String remarks) {
+            this.remarks = remarks;
+        }
     }
 }
 

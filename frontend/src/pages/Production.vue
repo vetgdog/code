@@ -1,5 +1,45 @@
 <template>
   <div class="space-y-6">
+    <section v-if="canUpdateProduction" class="bg-white rounded-lg border border-outline-variant/10">
+      <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold tracking-tight">待处理质检异常</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">展示当前生产管理员负责批次中的不合格成品，便于及时返工与跟进。</p>
+        </div>
+        <button class="text-xs text-primary font-semibold" @click="loadQualityAlerts">刷新</button>
+      </div>
+      <div class="p-5">
+        <div v-if="qualityAlertError" class="mb-3 text-xs text-error">{{ qualityAlertError }}</div>
+        <div v-if="qualityAlerts.length === 0" class="text-sm text-on-surface-variant">当前没有待处理质检异常。</div>
+        <table v-else class="w-full text-sm">
+          <thead class="text-xs text-on-surface-variant">
+            <tr class="text-left">
+              <th class="pb-2">批次号</th>
+              <th class="pb-2">订单号</th>
+              <th class="pb-2">产品名称</th>
+              <th class="pb-2">SKU</th>
+              <th class="pb-2">数量</th>
+              <th class="pb-2">问题说明</th>
+              <th class="pb-2">质检员</th>
+              <th class="pb-2">质检时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="alert in qualityAlerts" :key="alert.id" class="border-t border-outline-variant/20">
+              <td class="py-3 font-semibold text-red-700">{{ alert.batchNo }}</td>
+              <td class="py-3">{{ alert.orderNo || '-' }}</td>
+              <td class="py-3">{{ alert.productName || '-' }}</td>
+              <td class="py-3">{{ alert.productSku || '-' }}</td>
+              <td class="py-3">{{ formatNumber(alert.quantity) }}</td>
+              <td class="py-3">{{ alert.qualityRemark || '未填写原因' }}</td>
+              <td class="py-3">{{ alert.inspectorName || '-' }}</td>
+              <td class="py-3">{{ formatDate(alert.inspectedAt) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="bg-white rounded-lg border border-outline-variant/10">
       <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
         <h3 class="text-sm font-bold tracking-tight">生产订单</h3>
@@ -110,6 +150,8 @@ const statusMessage = ref('');
 const statusError = ref('');
 const productionRecords = ref([]);
 const recordError = ref('');
+const qualityAlerts = ref([]);
+const qualityAlertError = ref('');
 const recordFilter = reactive({
   keyword: '',
   startDate: '',
@@ -157,6 +199,21 @@ const loadRecords = async () => {
   }
 };
 
+const loadQualityAlerts = async () => {
+  if (!canUpdateProduction.value) {
+    qualityAlerts.value = [];
+    return;
+  }
+  qualityAlertError.value = '';
+  try {
+    const response = await productionApi.listQualityAlerts();
+    qualityAlerts.value = response.data || [];
+  } catch (error) {
+    qualityAlerts.value = [];
+    qualityAlertError.value = error?.response?.data?.message || error?.response?.data || '质检异常加载失败。';
+  }
+};
+
 const resetRecordFilter = async () => {
   recordFilter.keyword = '';
   recordFilter.startDate = '';
@@ -179,15 +236,16 @@ const formatRecordStatus = (value) => {
 };
 
 onMounted(async () => {
-  await Promise.all([loadOrders(), loadRecords()]);
+  await Promise.all([loadOrders(), loadRecords(), loadQualityAlerts()]);
 });
 
 watch(
   () => realtime.state.lastMessage,
   (message) => {
-    if (message?.topic && (message.topic.startsWith('/topic/orders') || message.topic === '/topic/production')) {
+    if (message?.topic && (message.topic.startsWith('/topic/orders') || message.topic.startsWith('/topic/production') || message.topic.startsWith('/topic/quality'))) {
       loadOrders();
       loadRecords();
+      loadQualityAlerts();
     }
   }
 );
