@@ -1,0 +1,77 @@
+﻿{
+    "timestamp":  "2026-04-16T21:58:37",
+    "baseUrl":  "http://127.0.0.1:8085/api/v1",
+    "historicalProbeDate":  "2000-01-03",
+    "accounts":  {
+                     "productionManager":  "prod.plan.verify.20260416215836@example.com",
+                     "procurementManager":  "proc.plan.verify.20260416215836@example.com"
+                 },
+    "register":  {
+                     "production":  {
+                                        "ok":  true,
+                                        "error":  null,
+                                        "status":  200
+                                    },
+                     "procurement":  {
+                                         "ok":  true,
+                                         "error":  null,
+                                         "status":  200
+                                     }
+                 },
+    "login":  {
+                  "production":  {
+                                     "ok":  true,
+                                     "roles":  "ROLE_PRODUCTION_MANAGER",
+                                     "status":  200,
+                                     "role":  "ROLE_PRODUCTION_MANAGER"
+                                 },
+                  "procurement":  {
+                                      "ok":  true,
+                                      "roles":  "ROLE_PROCUREMENT_MANAGER",
+                                      "status":  200,
+                                      "role":  "ROLE_PROCUREMENT_MANAGER"
+                                  }
+              },
+    "endpoints":  {
+                      "productionList":  {
+                                             "ok":  true,
+                                             "error":  null,
+                                             "status":  200,
+                                             "count":  1
+                                         },
+                      "productionCurrent":  {
+                                                "ok":  true,
+                                                "error":  null,
+                                                "status":  200,
+                                                "itemCount":  1,
+                                                "weekStart":  "2026-04-13"
+                                            },
+                      "procurementList":  {
+                                              "ok":  true,
+                                              "error":  null,
+                                              "status":  200,
+                                              "count":  1
+                                          },
+                      "procurementCurrent":  {
+                                                 "ok":  true,
+                                                 "error":  null,
+                                                 "status":  200,
+                                                 "itemCount":  5,
+                                                 "weekStart":  "2026-04-13"
+                                             },
+                      "productionCurrentHistoricalDate":  {
+                                                              "ok":  true,
+                                                              "error":  null,
+                                                              "status":  200,
+                                                              "itemCount":  1,
+                                                              "weekStart":  "2000-01-03"
+                                                          },
+                      "procurementCurrentHistoricalDate":  {
+                                                               "ok":  true,
+                                                               "error":  null,
+                                                               "status":  200,
+                                                               "itemCount":  5,
+                                                               "weekStart":  "2000-01-03"
+                                                           }
+                  }
+}
