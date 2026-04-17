@@ -72,6 +72,7 @@ public class ProcurementWorkflowService {
         if (purchaseOrder == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购单数据不能为空");
         }
+        User operatorUser = userRepository.findByEmailIgnoreCase(safe(operator)).orElse(null);
         if (purchaseOrder.getSupplier() == null || purchaseOrder.getSupplier().getId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择供应商");
         }
@@ -123,6 +124,8 @@ public class ProcurementWorkflowService {
         purchaseOrder.setItems(items);
         purchaseOrder.setTotalAmount(totalAmount);
         purchaseOrder.setStatus(STATUS_WAITING_SUPPLIER);
+        purchaseOrder.setCreatedBy(operatorUser == null ? null : operatorUser.getId());
+        purchaseOrder.setCreatedByName(resolveDisplayName(operatorUser, operator));
         purchaseOrder.setOrderDate(purchaseOrder.getOrderDate() == null ? LocalDateTime.now() : purchaseOrder.getOrderDate());
         purchaseOrder.setCreatedAt(purchaseOrder.getCreatedAt() == null ? LocalDateTime.now() : purchaseOrder.getCreatedAt());
         PurchaseOrder saved = purchaseOrderRepository.save(purchaseOrder);
@@ -215,6 +218,7 @@ public class ProcurementWorkflowService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购单没有明细，无法入库");
         }
 
+        User operatorUser = userRepository.findByEmailIgnoreCase(safe(operator)).orElse(null);
         for (PurchaseOrderItem item : order.getItems()) {
             Product product = item.getProduct();
             if (product == null || product.getId() == null) {
@@ -225,7 +229,7 @@ public class ProcurementWorkflowService {
             inventoryItem.setQuantity(safeNumber(inventoryItem.getQuantity()) + safeNumber(item.getQuantity()));
             inventoryItem.setUpdatedAt(LocalDateTime.now());
             inventoryItemRepository.save(inventoryItem);
-            createStockTransaction(product, warehouse, safeNumber(item.getQuantity()), "IN", "PURCHASE_ORDER", order.getId(), order.getCreatedBy(), blankToNull(note));
+            createStockTransaction(product, warehouse, safeNumber(item.getQuantity()), "IN", "PURCHASE_ORDER", order.getId(), operatorUser, blankToNull(note));
         }
 
         order.setStatus(STATUS_WAREHOUSED);
@@ -523,7 +527,7 @@ public class ProcurementWorkflowService {
                                         String type,
                                         String relatedType,
                                         Long relatedId,
-                                        Long createdBy,
+                                        User operatorUser,
                                         String remark) {
         StockTransaction tx = new StockTransaction();
         tx.setTransactionNo("ST-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
@@ -533,10 +537,18 @@ public class ProcurementWorkflowService {
         tx.setTransactionType(type);
         tx.setRelatedType(relatedType);
         tx.setRelatedId(relatedId);
-        tx.setCreatedBy(createdBy);
+        tx.setCreatedBy(operatorUser == null ? null : operatorUser.getId());
+        tx.setCreatedByName(resolveDisplayName(operatorUser, null));
         tx.setRemark(remark);
         tx.setCreatedAt(LocalDateTime.now());
         stockTransactionRepository.save(tx);
+    }
+
+    private String resolveDisplayName(User user, String fallback) {
+        if (user != null && user.getName() != null && !user.getName().isBlank()) {
+            return user.getName();
+        }
+        return blankToNull(fallback);
     }
 
     private double safeNumber(Double value) {

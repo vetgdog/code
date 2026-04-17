@@ -28,6 +28,7 @@ public class SalesRecord {
     private String shippingAddress;
     private String status;
     private Long createdBy;
+    private String createdByName;
     private LocalDateTime createdAt = LocalDateTime.now();
 }
 

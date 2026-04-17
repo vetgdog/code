@@ -109,6 +109,64 @@
       </div>
     </section>
 
+    <section class="bg-white rounded-lg border border-outline-variant/10 p-5">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h4 class="text-sm font-bold">质量追溯</h4>
+          <p class="mt-1 text-xs text-on-surface-variant">输入自己的订单号，可查看对应产品批次是否质检合格及详细检验记录。</p>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-col md:flex-row gap-3">
+        <input v-model="qualityTraceOrderNo" class="rounded border border-outline-variant/40 px-3 py-2 text-sm flex-1" placeholder="请输入订单号，如 SO-XXXX" @keyup.enter="loadQualityTrace" />
+        <button class="rounded bg-primary text-white px-4 py-2 text-sm font-semibold disabled:opacity-50" :disabled="!qualityTraceOrderNo || traceLoading" @click="loadQualityTrace">
+          {{ traceLoading ? '查询中...' : '查询质检结果' }}
+        </button>
+      </div>
+      <div v-if="traceError" class="mt-3 text-xs text-error">{{ traceError }}</div>
+      <div v-if="qualityTraceResult" class="mt-4 space-y-4">
+        <div class="rounded-lg border border-outline-variant/20 bg-slate-50 p-4 text-sm">
+          <div>订单号：{{ qualityTraceResult.orderNo }}</div>
+          <div class="mt-1">订单状态：{{ qualityTraceResult.status || '-' }}</div>
+        </div>
+        <div v-if="!(qualityTraceResult.batches || []).length" class="text-sm text-on-surface-variant">当前订单尚未生成可追溯批次。</div>
+        <div v-for="batch in qualityTraceResult.batches || []" :key="batch.id" class="rounded-lg border border-outline-variant/20 p-4">
+          <div class="flex items-center justify-between gap-3">
+            <div class="font-semibold text-sm">批次 {{ batch.batchNo }}</div>
+            <div class="text-xs px-2 py-1 rounded-full" :class="traceStatusClass(batch.qualityStatus)">{{ batch.qualityStatus || '待检' }}</div>
+          </div>
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+            <div>产品：{{ batch.productName || '-' }}（{{ batch.productSku || '-' }}）</div>
+            <div>数量：{{ formatNumber(batch.quantity) }}</div>
+            <div>质检员：{{ batch.inspectorName || '-' }}</div>
+            <div>质检时间：{{ formatDate(batch.inspectedAt) }}</div>
+            <div class="md:col-span-2">质检结论：{{ batch.qualityRemark || '-' }}</div>
+          </div>
+          <div class="mt-3">
+            <div class="text-xs font-semibold text-on-surface-variant mb-2">质检记录</div>
+            <div v-if="!(batch.records || []).length" class="text-sm text-on-surface-variant">暂无质检记录。</div>
+            <table v-else class="w-full text-sm">
+              <thead class="text-xs text-on-surface-variant">
+                <tr class="text-left">
+                  <th class="pb-2">检验人</th>
+                  <th class="pb-2">结果</th>
+                  <th class="pb-2">备注</th>
+                  <th class="pb-2">时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="record in batch.records" :key="record.id" class="border-t border-outline-variant/20">
+                  <td class="py-2">{{ record.inspectorName || '-' }}</td>
+                  <td class="py-2">{{ record.result || '-' }}</td>
+                  <td class="py-2">{{ record.remarks || '-' }}</td>
+                  <td class="py-2">{{ formatDate(record.inspectionDate) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <section v-if="selectedOrder" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <h4 class="text-sm font-bold">订单详情</h4>
       <div class="mt-3 text-sm">
@@ -158,6 +216,10 @@ const createMessage = ref('');
 const createError = ref('');
 const products = ref([]);
 const submitting = ref(false);
+const qualityTraceOrderNo = ref('');
+const qualityTraceResult = ref(null);
+const traceError = ref('');
+const traceLoading = ref(false);
 
 const orderForm = reactive({
   productId: '',
@@ -228,6 +290,24 @@ const loadOrderDetail = async (orderId) => {
   }
 };
 
+const loadQualityTrace = async () => {
+  traceError.value = '';
+  qualityTraceResult.value = null;
+  if (!qualityTraceOrderNo.value) {
+    traceError.value = '请输入订单号后再查询。';
+    return;
+  }
+  traceLoading.value = true;
+  try {
+    const response = await customerApi.traceQuality(qualityTraceOrderNo.value);
+    qualityTraceResult.value = response.data || null;
+  } catch (err) {
+    traceError.value = err?.response?.data?.message || err?.response?.data || '质量追溯查询失败。';
+  } finally {
+    traceLoading.value = false;
+  }
+};
+
 const submitOrder = async () => {
   createMessage.value = '';
   createError.value = '';
@@ -249,6 +329,7 @@ const submitOrder = async () => {
       ]
     });
     createMessage.value = '下单成功。';
+    qualityTraceOrderNo.value = orderForm.orderNo || '';
     orderForm.productId = '';
     orderForm.quantity = null;
     orderForm.shippingAddress = '';
@@ -284,5 +365,14 @@ const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
 const formatNumber = (value) => Number(value || 0).toFixed(2);
 const formatProducts = (items) => (items || []).map((item) => item.product?.name || item.product?.sku || '-').join('，') || '-';
 const formatQuantity = (items) => formatNumber((items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0));
+const traceStatusClass = (status) => {
+  if (status === '合格') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+  if (status === '不合格') {
+    return 'bg-red-100 text-red-700';
+  }
+  return 'bg-amber-100 text-amber-700';
+};
 </script>
 

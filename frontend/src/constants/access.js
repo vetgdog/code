@@ -16,9 +16,10 @@ export const INTERNAL_POSITIONS = [
 const ROLE_CONFIG = {
   ROLE_ADMIN: {
     defaultRouteName: 'Dashboard',
-    routeNames: ['Dashboard', 'Orders', 'Production', 'ProductionPlan', 'Inventory', 'Procurement', 'ProcurementPlan', 'Quality', 'Customer'],
+    routeNames: ['Dashboard', 'Orders', 'Production', 'ProductionPlan', 'Inventory', 'InventoryAlert', 'Procurement', 'ProcurementPlan', 'Quality', 'Customer', 'AccountAdmin'],
     permissions: [
       'dashboard:view',
+      'admin:user-manage',
       'orders:view',
       'orders:create',
       'orders:plan',
@@ -29,6 +30,7 @@ const ROLE_CONFIG = {
       'production:update',
       'production:plan:view',
       'inventory:view',
+      'inventory:alerts',
       'inventory:edit',
       'inventory:receive',
       'procurement:view',
@@ -68,8 +70,8 @@ const ROLE_CONFIG = {
   },
   ROLE_WAREHOUSE_MANAGER: {
     defaultRouteName: 'Inventory',
-    routeNames: ['Dashboard', 'Inventory', 'Orders', 'Procurement'],
-    permissions: ['dashboard:view', 'inventory:view', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check', 'procurement:view']
+    routeNames: ['Dashboard', 'Inventory', 'InventoryAlert', 'Orders', 'Procurement'],
+    permissions: ['dashboard:view', 'inventory:view', 'inventory:alerts', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check', 'procurement:view']
   },
   ROLE_QUALITY_INSPECTOR: {
     defaultRouteName: 'Quality',

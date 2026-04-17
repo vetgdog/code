@@ -202,6 +202,8 @@
               <th class="pb-2">批次号</th>
               <th class="pb-2">业务类型</th>
               <th class="pb-2">关联单据</th>
+              <th class="pb-2">操作人ID</th>
+              <th class="pb-2">操作人</th>
               <th class="pb-2">备注</th>
               <th class="pb-2">时间</th>
             </tr>
@@ -216,6 +218,8 @@
               <td class="py-3">{{ transaction.lot || '-' }}</td>
               <td class="py-3">{{ formatRelatedType(transaction.relatedType) }}</td>
               <td class="py-3">{{ transaction.relatedId || '-' }}</td>
+              <td class="py-3">{{ transaction.createdBy || '-' }}</td>
+              <td class="py-3">{{ transaction.createdByName || '-' }}</td>
               <td class="py-3">{{ transaction.remark || '-' }}</td>
               <td class="py-3">{{ formatDate(transaction.createdAt) }}</td>
             </tr>

@@ -226,16 +226,48 @@
     </section>
 
     <section v-if="canCreateProcurement" class="bg-white rounded-lg border border-outline-variant/10 p-5">
+      <h3 class="text-sm font-bold tracking-tight">库存预警采购申请</h3>
+      <div class="mt-3 text-xs text-on-surface-variant">仓库管理员发起的原材料补采申请会在此展示，采购管理员可一键带入采购单。</div>
+      <div class="mt-4" v-if="purchaseRequests.length === 0">
+        <div class="text-sm text-on-surface-variant">当前没有待处理采购申请。</div>
+      </div>
+      <table v-else class="mt-4 w-full text-sm">
+        <thead class="text-xs text-on-surface-variant">
+          <tr class="text-left">
+            <th class="pb-2">申请单号</th>
+            <th class="pb-2">原材料</th>
+            <th class="pb-2">申请数量</th>
+            <th class="pb-2">仓库管理员</th>
+            <th class="pb-2">备注</th>
+            <th class="pb-2">时间</th>
+            <th class="pb-2">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="request in purchaseRequests" :key="request.id" class="border-t border-outline-variant/20">
+            <td class="py-3 font-semibold">{{ request.requestNo }}</td>
+            <td class="py-3">{{ request.product?.name || request.product?.sku || '-' }}</td>
+            <td class="py-3">{{ formatNumber(request.requestedQuantity) }}</td>
+            <td class="py-3">{{ request.requestedByName || request.requestedBy || '-' }}</td>
+            <td class="py-3">{{ request.notes || '-' }}</td>
+            <td class="py-3">{{ formatDate(request.requestDate) }}</td>
+            <td class="py-3"><button class="text-xs text-primary" @click="applyPurchaseRequest(request)">带入采购单</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section v-if="canCreateProcurement" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <h3 class="text-sm font-bold tracking-tight">采购下单</h3>
       <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" @submit.prevent="handleCreateOrder">
         <div class="rounded border border-dashed border-outline-variant/40 px-3 py-2 text-sm text-on-surface-variant bg-slate-50">
-          采购单号将于提交后自动生成
+          采购单号与创建人将于提交后自动生成/绑定当前账号
         </div>
         <select v-model="orderForm.supplierId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
           <option value="">{{ availableSuppliers.length ? '请选择供应商' : '暂无可选供应商' }}</option>
           <option v-for="supplier in availableSuppliers" :key="supplier.id" :value="String(supplier.id)">{{ supplier.name }}（{{ supplier.code }}）</option>
         </select>
-        <input v-model.number="orderForm.createdBy" type="number" min="0" placeholder="创建人ID（可选）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <div class="rounded border border-dashed border-outline-variant/40 px-3 py-2 text-sm text-on-surface-variant bg-slate-50">当前创建人：系统自动记录</div>
         <input v-model="orderForm.procurementNote" placeholder="采购备注（可选）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
 
         <select v-model="itemForm.productId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
@@ -297,6 +329,8 @@
               <th class="pb-2">状态</th>
               <th class="pb-2">原材料</th>
               <th class="pb-2">总额</th>
+              <th class="pb-2">采购管理员ID</th>
+              <th class="pb-2">采购管理员</th>
               <th class="pb-2">下单时间</th>
               <th class="pb-2">发货时间</th>
               <th class="pb-2">入库时间</th>
@@ -310,6 +344,8 @@
               <td class="py-3">{{ order.status }}</td>
               <td class="py-3">{{ summarizeItems(order.items) }}</td>
               <td class="py-3">¥{{ formatAmount(order.totalAmount) }}</td>
+              <td class="py-3">{{ order.createdBy || '-' }}</td>
+              <td class="py-3">{{ order.createdByName || '-' }}</td>
               <td class="py-3">{{ formatDate(order.orderDate) }}</td>
               <td class="py-3">{{ formatDate(order.shippedAt) }}</td>
               <td class="py-3">{{ formatDate(order.receivedAt) }}</td>
@@ -353,6 +389,13 @@
       <div v-if="workflowMessage" class="px-5 pb-4 text-xs text-emerald-600">{{ workflowMessage }}</div>
       <div v-if="workflowError" class="px-5 pb-4 text-xs text-error">{{ workflowError }}</div>
     </section>
+
+    <WeeklyGantt
+      v-if="!isSupplierRole"
+      title="采购周甘特概览"
+      :items="procurementGanttItems"
+      empty-text="当前没有可用于统计的采购记录。"
+    />
   </div>
 </template>
 
@@ -361,6 +404,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { procurementApi } from '../api/services.js';
 import { useAuthStore } from '../store/auth.js';
 import { useRealtimeStore } from '../store/realtime.js';
+import WeeklyGantt from '../components/WeeklyGantt.vue';
 
 const auth = useAuthStore();
 const realtime = useRealtimeStore();
@@ -417,6 +461,7 @@ const importMessage = ref('');
 const importError = ref('');
 const importErrors = ref([]);
 const supplierDashboard = ref(null);
+const purchaseRequests = ref([]);
 
 const rawMaterialFilter = reactive({ keyword: '', startDate: '', endDate: '' });
 const orderFilter = reactive({ keyword: '', status: '', startDate: '', endDate: '' });
@@ -436,7 +481,6 @@ const rawMaterialForm = reactive({
 
 const orderForm = reactive({
   supplierId: '',
-  createdBy: null,
   procurementNote: ''
 });
 
@@ -578,6 +622,19 @@ const loadOrders = async () => {
   }
 };
 
+const loadPurchaseRequests = async () => {
+  if (!canCreateProcurement.value) {
+    purchaseRequests.value = [];
+    return;
+  }
+  try {
+    const response = await procurementApi.listRequests();
+    purchaseRequests.value = response.data || [];
+  } catch (error) {
+    purchaseRequests.value = [];
+  }
+};
+
 const exportOrders = async (format) => {
   purchaseError.value = '';
   try {
@@ -636,12 +693,23 @@ const resetRawMaterialForm = () => {
 
 const resetOrderForm = () => {
   orderForm.supplierId = '';
-  orderForm.createdBy = null;
   orderForm.procurementNote = '';
   itemForm.productId = '';
   itemForm.quantity = null;
   itemForm.unitPrice = null;
   formItems.value = [];
+};
+
+const applyPurchaseRequest = (request) => {
+  if (!request?.product?.id) {
+    return;
+  }
+  itemForm.productId = String(request.product.id);
+  itemForm.quantity = Number(request.requestedQuantity || 0);
+  itemForm.unitPrice = Number(request.product?.unitPrice || 0);
+  if (!orderForm.procurementNote) {
+    orderForm.procurementNote = request.requestNo ? `来源采购申请：${request.requestNo}` : '';
+  }
 };
 
 const handleCreateRawMaterial = async () => {
@@ -717,7 +785,6 @@ const handleCreateOrder = async () => {
   try {
     const payload = {
       supplier: { id: Number(orderForm.supplierId) },
-      createdBy: orderForm.createdBy == null ? null : Number(orderForm.createdBy),
       procurementNote: orderForm.procurementNote || null,
       items: formItems.value.map((item) => ({
         product: { id: item.product.id },
@@ -823,12 +890,22 @@ const summarizeItems = (items) => (items || []).map((item) => `${item.product?.n
 const formatAmount = (value) => Number(value || 0).toFixed(2);
 const formatNumber = (value) => Number(value || 0).toFixed(2);
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
+const procurementGanttItems = computed(() => purchaseOrders.value.map((order) => ({
+  id: order.id,
+  label: `${order.poNo} / ${order.supplier?.name || '-'}`,
+  meta: `${order.createdByName || '采购管理员'} · ¥${formatAmount(order.totalAmount)}`,
+  start: order.orderDate,
+  end: order.receivedAt || order.shippedAt || order.notifiedWarehouseAt || order.orderDate,
+  shortText: order.status || '采购',
+  color: '#059669'
+})));
 
 watch(
   () => realtime.state.lastMessage,
   (message) => {
     if (message?.topic?.startsWith('/topic/procurement')) {
       loadOrders();
+      loadPurchaseRequests();
       loadRawMaterials();
       loadDashboard();
       if (selectedMaterial.value?.id) {
@@ -866,7 +943,7 @@ watch(
 );
 
 onMounted(async () => {
-  await Promise.all([loadRawMaterials(), loadOrders(), loadSuppliers(), loadDashboard()]);
+  await Promise.all([loadRawMaterials(), loadOrders(), loadPurchaseRequests(), loadSuppliers(), loadDashboard()]);
 });
 </script>
 

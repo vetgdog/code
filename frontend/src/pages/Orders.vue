@@ -184,6 +184,8 @@
               <th class="pb-2">客户</th>
               <th class="pb-2">收货地址</th>
               <th class="pb-2">总额</th>
+              <th class="pb-2">销售管理员ID</th>
+              <th class="pb-2">销售管理员</th>
               <th class="pb-2">时间</th>
             </tr>
           </thead>
@@ -194,12 +196,21 @@
               <td class="py-3">{{ record.customerName || '-' }}</td>
               <td class="py-3">{{ record.shippingAddress || '-' }}</td>
               <td class="py-3">¥{{ formatAmount(record.totalAmount) }}</td>
+              <td class="py-3">{{ record.createdBy || '-' }}</td>
+              <td class="py-3">{{ record.createdByName || '-' }}</td>
               <td class="py-3">{{ formatDate(record.createdAt) }}</td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
+
+    <WeeklyGantt
+      v-if="canSalesReview"
+      title="销售周甘特概览（全员统计）"
+      :items="salesGanttItems"
+      empty-text="当前没有可用于统计的销售记录。"
+    />
   </div>
 </template>
 
@@ -208,6 +219,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { orderApi, productApi } from '../api/services.js';
 import { useRealtimeStore } from '../store/realtime.js';
 import { useAuthStore } from '../store/auth.js';
+import WeeklyGantt from '../components/WeeklyGantt.vue';
 
 const orders = ref([]);
 const loading = ref(false);
@@ -221,6 +233,7 @@ const canProductionUpdate = computed(() => auth.hasPermission('production:update
 const canManageProducts = computed(() => auth.hasPermission('orders:create'));
 const products = ref([]);
 const salesRecords = ref([]);
+const salesOverviewRecords = ref([]);
 const salesRecordError = ref('');
 const salesRecordFilter = reactive({
   startDate: '',
@@ -306,6 +319,24 @@ const loadSalesRecords = async () => {
   } catch (error) {
     salesRecords.value = [];
     salesRecordError.value = error?.response?.data?.message || error?.response?.data || '销售记录加载失败。';
+  } finally {
+    await loadSalesOverview();
+  }
+};
+
+const loadSalesOverview = async () => {
+  if (!canSalesReview.value) {
+    salesOverviewRecords.value = [];
+    return;
+  }
+  try {
+    const response = await orderApi.listSalesRecordOverview({
+      startDate: salesRecordFilter.startDate || undefined,
+      endDate: salesRecordFilter.endDate || undefined
+    });
+    salesOverviewRecords.value = sortSalesRecordsByLatest(response.data || []);
+  } catch (error) {
+    salesOverviewRecords.value = [];
   }
 };
 
@@ -336,7 +367,7 @@ onMounted(async () => {
   if (canManageProducts.value) {
     await loadProducts();
   }
-  await loadSalesRecords();
+  await Promise.all([loadSalesRecords(), loadSalesOverview()]);
 });
 
 watch(
@@ -345,6 +376,7 @@ watch(
     if (message?.topic && message.topic.startsWith('/topic/orders')) {
       loadOrders();
       loadSalesRecords();
+      loadSalesOverview();
     }
   }
 );
@@ -400,7 +432,16 @@ const handleSalesDecision = async (orderId, decision) => {
   workflowMessage.value = '';
   workflowError.value = '';
   try {
-    await orderApi.salesDecision(orderId, decision, {});
+    let payload = {};
+    if (decision === 'REJECT') {
+      const reason = window.prompt('请输入拒绝理由：');
+      if (!String(reason || '').trim()) {
+        workflowError.value = '拒绝订单时必须填写拒绝理由。';
+        return;
+      }
+      payload = { note: reason.trim() };
+    }
+    await orderApi.salesDecision(orderId, decision, payload);
     workflowMessage.value = decision === 'REJECT'
       ? `订单 ${orderId} 已拒绝。`
       : `订单 ${orderId} 已通知仓库管理员查看。`;
@@ -532,5 +573,14 @@ const formatAmount = (value) => (value || 0).toFixed(2);
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
 const formatProducts = (items) => (items || []).map((item) => item.product?.name || `产品#${item.product?.id || '-'}`).join('，') || '-';
 const formatQuantity = (items) => (items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+const salesGanttItems = computed(() => salesOverviewRecords.value.map((record) => ({
+  id: record.id,
+  label: `${record.orderNo} / ${record.customerName || '客户'}`,
+  meta: `${record.createdByName || '销售管理员'} · ¥${formatAmount(record.totalAmount)}`,
+  start: record.createdAt,
+  end: record.createdAt,
+  shortText: record.createdByName || '销售',
+  color: '#2563eb'
+})));
 </script>
 

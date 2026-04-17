@@ -113,6 +113,8 @@
               <th class="pb-2">SKU</th>
               <th class="pb-2">生产数量</th>
               <th class="pb-2">状态</th>
+              <th class="pb-2">计划创建人</th>
+              <th class="pb-2">完工生产管理员</th>
               <th class="pb-2">开始时间</th>
               <th class="pb-2">完成时间</th>
             </tr>
@@ -125,6 +127,8 @@
               <td class="py-3">{{ record.productSku || '-' }}</td>
               <td class="py-3">{{ formatNumber(record.plannedQuantity) }}</td>
               <td class="py-3">{{ formatRecordStatus(record.status) }}</td>
+              <td class="py-3">{{ formatOperator(record.createdByName, record.createdBy) }}</td>
+              <td class="py-3">{{ formatOperator(record.completedByName, record.completedById) }}</td>
               <td class="py-3">{{ formatDate(record.startDate) }}</td>
               <td class="py-3">{{ formatDate(record.completedAt) }}</td>
             </tr>
@@ -132,6 +136,12 @@
         </table>
       </div>
     </section>
+
+    <WeeklyGantt
+      title="生产周甘特概览（全员统计）"
+      :items="productionGanttItems"
+      empty-text="当前没有可用于统计的生产记录。"
+    />
   </div>
 </template>
 
@@ -140,6 +150,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { orderApi, productionApi } from '../api/services.js';
 import { useRealtimeStore } from '../store/realtime.js';
 import { useAuthStore } from '../store/auth.js';
+import WeeklyGantt from '../components/WeeklyGantt.vue';
 
 const auth = useAuthStore();
 const canUpdateProduction = computed(() => auth.hasPermission('production:update'));
@@ -149,6 +160,7 @@ const loading = ref(false);
 const statusMessage = ref('');
 const statusError = ref('');
 const productionRecords = ref([]);
+const productionOverviewRecords = ref([]);
 const recordError = ref('');
 const qualityAlerts = ref([]);
 const qualityAlertError = ref('');
@@ -164,7 +176,7 @@ const loadOrders = async () => {
   try {
     const response = await orderApi.list();
     const all = response.data || [];
-    productionOrders.value = all.filter((order) => ['生产中', '待仓库核查'].includes(order.status));
+    productionOrders.value = all.filter((order) => ['生产中', '待质检'].includes(order.status));
   } catch (error) {
     productionOrders.value = [];
   } finally {
@@ -196,6 +208,21 @@ const loadRecords = async () => {
   } catch (error) {
     productionRecords.value = [];
     recordError.value = error?.response?.data?.message || error?.response?.data || '生产记录加载失败。';
+  } finally {
+    await loadRecordOverview();
+  }
+};
+
+const loadRecordOverview = async () => {
+  try {
+    const response = await productionApi.listRecordOverview({
+      keyword: recordFilter.keyword || undefined,
+      startDate: recordFilter.startDate || undefined,
+      endDate: recordFilter.endDate || undefined
+    });
+    productionOverviewRecords.value = response.data || [];
+  } catch (error) {
+    productionOverviewRecords.value = [];
   }
 };
 
@@ -232,11 +259,20 @@ const formatRecordStatus = (value) => {
   if (value === 'DONE') {
     return '待仓库入库';
   }
+  if (value === '待质检') {
+    return '待质检';
+  }
   return value || '-';
+};
+const formatOperator = (name, id) => {
+  if (name && id != null) {
+    return `${name}（${id}）`;
+  }
+  return name || (id != null ? `#${id}` : '-');
 };
 
 onMounted(async () => {
-  await Promise.all([loadOrders(), loadRecords(), loadQualityAlerts()]);
+  await Promise.all([loadOrders(), loadRecords(), loadRecordOverview(), loadQualityAlerts()]);
 });
 
 watch(
@@ -245,9 +281,19 @@ watch(
     if (message?.topic && (message.topic.startsWith('/topic/orders') || message.topic.startsWith('/topic/production') || message.topic.startsWith('/topic/quality'))) {
       loadOrders();
       loadRecords();
+      loadRecordOverview();
       loadQualityAlerts();
     }
   }
 );
+const productionGanttItems = computed(() => productionOverviewRecords.value.map((record) => ({
+  id: record.id,
+  label: `${record.planNo} / ${record.productName || '-'}`,
+  meta: `${record.completedByName || record.createdByName || '生产管理员'} · ${formatNumber(record.plannedQuantity)}`,
+  start: record.startDate || record.createdAt,
+  end: record.completedAt || record.createdAt,
+  shortText: record.completedByName || '生产',
+  color: '#ea580c'
+})));
 </script>
 

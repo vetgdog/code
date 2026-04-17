@@ -133,6 +133,53 @@
         </div>
       </div>
     </section>
+
+    <section class="bg-white rounded-lg border border-outline-variant/10">
+      <div class="p-5 border-b border-surface-container-low flex items-center justify-between gap-4">
+        <div>
+          <h3 class="text-sm font-bold tracking-tight">我的质检记录</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">仅展示当前质检管理员自己处理过的检验记录。</p>
+        </div>
+        <button class="text-xs text-primary font-semibold" @click="loadMyRecords">刷新</button>
+      </div>
+      <div class="p-5">
+        <div class="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+          <input v-model="myRecordFilter.keyword" placeholder="搜索批次号 / 订单号 / 产品 / 备注" class="rounded border border-outline-variant/40 px-3 py-2 text-sm md:col-span-2" @keyup.enter="loadMyRecords" />
+          <select v-model="myRecordFilter.result" class="rounded border border-outline-variant/40 px-3 py-2 text-sm">
+            <option value="">全部结果</option>
+            <option value="合格">合格</option>
+            <option value="不合格">不合格</option>
+          </select>
+          <div class="flex items-center gap-3">
+            <button class="rounded border border-primary text-primary px-3 py-2 text-sm font-semibold" @click="loadMyRecords">查询</button>
+            <button class="text-xs text-on-surface-variant" @click="resetMyRecordFilter">重置</button>
+          </div>
+        </div>
+        <div v-if="myRecords.length === 0" class="text-sm text-on-surface-variant">当前没有质检记录。</div>
+        <table v-else class="w-full text-sm">
+          <thead class="text-xs text-on-surface-variant">
+            <tr class="text-left">
+              <th class="pb-2">批次号</th>
+              <th class="pb-2">订单号</th>
+              <th class="pb-2">产品</th>
+              <th class="pb-2">结果</th>
+              <th class="pb-2">备注</th>
+              <th class="pb-2">时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in myRecords" :key="record.id" class="border-t border-outline-variant/20">
+              <td class="py-3 font-semibold">{{ record.batch?.batchNo || '-' }}</td>
+              <td class="py-3">{{ record.batch?.sourceOrderNo || '-' }}</td>
+              <td class="py-3">{{ record.product?.name || record.product?.sku || '-' }}</td>
+              <td class="py-3">{{ record.result || '-' }}</td>
+              <td class="py-3">{{ record.remarks || '-' }}</td>
+              <td class="py-3">{{ formatDate(record.inspectionDate) }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
   </div>
 </template>
 
@@ -164,6 +211,11 @@ const submitting = ref(false);
 const error = ref('');
 const message = ref('');
 const submitError = ref('');
+const myRecords = ref([]);
+const myRecordFilter = reactive({
+  keyword: '',
+  result: ''
+});
 
 const pendingCount = computed(() => batches.value.filter((item) => item.qualityStatus === '待检').length);
 
@@ -260,14 +312,32 @@ const submitInspection = async () => {
       remarks: inspectionForm.remarks || null
     });
     selectedBatch.value = response.data || selectedBatch.value;
-    message.value = inspectionForm.result === '不合格' ? '质检结果已提交，并已通知对应生产管理员。' : '质检结果已提交。';
+    message.value = inspectionForm.result === '不合格' ? '质检结果已提交，并已通知对应生产管理员返工。' : '质检结果已提交，并已通知仓库管理员确认入库。';
     resetInspectionForm();
-    await Promise.all([loadBatches(), loadRecords(selectedBatch.value.id)]);
+    await Promise.all([loadBatches(), loadRecords(selectedBatch.value.id), loadMyRecords()]);
   } catch (err) {
     submitError.value = err?.response?.data?.message || err?.response?.data || '质检提交失败。';
   } finally {
     submitting.value = false;
   }
+};
+
+const loadMyRecords = async () => {
+  try {
+    const response = await qualityApi.listMyRecords({
+      keyword: myRecordFilter.keyword || undefined,
+      result: myRecordFilter.result || undefined
+    });
+    myRecords.value = response.data || [];
+  } catch (err) {
+    myRecords.value = [];
+  }
+};
+
+const resetMyRecordFilter = async () => {
+  myRecordFilter.keyword = '';
+  myRecordFilter.result = '';
+  await loadMyRecords();
 };
 
 const resetInspectionForm = () => {
@@ -299,6 +369,7 @@ watch(
   async (event) => {
     if (event?.topic?.startsWith('/topic/quality')) {
       await loadBatches();
+      await loadMyRecords();
       if (selectedBatch.value?.id) {
         await loadRecords(selectedBatch.value.id);
       }
@@ -307,7 +378,7 @@ watch(
 );
 
 onMounted(async () => {
-  await loadBatches();
+  await Promise.all([loadBatches(), loadMyRecords()]);
 });
 </script>
 

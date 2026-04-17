@@ -8,6 +8,7 @@ export const authApi = {
 export const orderApi = {
   list: () => client.get('/orders'),
   listSalesRecords: (params = {}) => client.get('/orders/sales-records', { params }),
+  listSalesRecordOverview: (params = {}) => client.get('/orders/sales-records/overview', { params }),
   exportSalesRecords: (params = {}) => client.get('/orders/sales-records/export', { params, responseType: 'blob' }),
   create: (payload) => client.post('/orders', payload),
   createPlan: (orderId) => client.post(`/orders/${orderId}/create-plan`),
@@ -25,6 +26,7 @@ export const productionApi = {
   createTask: (payload) => client.post('/production/tasks', payload),
   listByUser: (userId) => client.get(`/production/tasks/user/${userId}`),
   listRecords: (params = {}) => client.get('/production/records', { params }),
+  listRecordOverview: (params = {}) => client.get('/production/records/overview', { params }),
   listQualityAlerts: () => client.get('/production/quality-alerts'),
   listWeeklyPlans: () => client.get('/production/weekly-plans'),
   getCurrentWeeklyPlan: (params = {}) => client.get('/production/weekly-plans/current', { params }),
@@ -36,8 +38,18 @@ export const inventoryApi = {
   list: (params = {}) => client.get('/inventory', { params }),
   listWarehouses: () => client.get('/inventory/warehouses'),
   listTransactions: (params = {}) => client.get('/inventory/transactions', { params }),
+  listAlerts: () => client.get('/inventory/alerts'),
+  createAlertProductionPlan: (productId, payload = {}) => client.post(`/inventory/alerts/finished-goods/${productId}/production-plan`, payload),
+  createAlertPurchaseRequest: (productId, payload = {}) => client.post(`/inventory/alerts/raw-materials/${productId}/purchase-request`, payload),
   stockIn: (payload) => client.post('/inventory/stock-in', payload),
   stockOut: (payload) => client.post('/inventory/stock-out', payload)
+};
+
+export const adminApi = {
+  listRoles: () => client.get('/admin/roles'),
+  listUsers: (params = {}) => client.get('/admin/users', { params }),
+  createUser: (payload) => client.post('/admin/users', payload),
+  updateUser: (userId, payload) => client.put(`/admin/users/${userId}`, payload)
 };
 
 export const procurementApi = {
@@ -69,6 +81,7 @@ export const qualityApi = {
   listBatches: (params = {}) => client.get('/quality/batches', { params }),
   getBatchByNo: (batchNo) => client.get(`/quality/batch/${encodeURIComponent(batchNo)}`),
   getRecords: (batchId) => client.get(`/quality/batch/${batchId}/records`),
+  listMyRecords: (params = {}) => client.get('/quality/my-records', { params }),
   inspectBatch: (batchId, payload) => client.post(`/quality/batch/${batchId}/inspect`, payload)
 };
 
@@ -83,6 +96,7 @@ export const customerApi = {
   listOrders: (customerId) => client.get(`/customer/${customerId}/orders`),
   listMyOrders: () => client.get('/customer/me/orders'),
   createOrder: (payload) => client.post('/customer/orders', payload),
-  getOrder: (orderId) => client.get(`/customer/orders/${orderId}`)
+  getOrder: (orderId) => client.get(`/customer/orders/${orderId}`),
+  traceQuality: (orderNo) => client.get('/customer/quality-trace', { params: { orderNo } })
 };
 

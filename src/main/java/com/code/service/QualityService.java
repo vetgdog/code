@@ -2,9 +2,11 @@ package com.code.service;
 
 import com.code.entity.Batch;
 import com.code.entity.QualityRecord;
+import com.code.entity.SalesOrder;
 import com.code.entity.User;
 import com.code.repository.BatchRepository;
 import com.code.repository.QualityRecordRepository;
+import com.code.repository.SalesOrderRepository;
 import com.code.repository.UserRepository;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
@@ -27,15 +29,18 @@ public class QualityService {
 
     private final BatchRepository batchRepository;
     private final QualityRecordRepository qualityRecordRepository;
+    private final SalesOrderRepository salesOrderRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
 
     public QualityService(BatchRepository batchRepository,
                           QualityRecordRepository qualityRecordRepository,
+                          SalesOrderRepository salesOrderRepository,
                           UserRepository userRepository,
                           NotificationService notificationService) {
         this.batchRepository = batchRepository;
         this.qualityRecordRepository = qualityRecordRepository;
+        this.salesOrderRepository = salesOrderRepository;
         this.userRepository = userRepository;
         this.notificationService = notificationService;
     }
@@ -62,6 +67,19 @@ public class QualityService {
         return qualityRecordRepository.findByBatchIdOrderByInspectionDateDesc(batchId);
     }
 
+    public List<QualityRecord> listMyRecords(String inspectorEmail, String keyword, String result) {
+        User inspector = resolveInspector(inspectorEmail);
+        if (inspector == null || inspector.getId() == null) {
+            return List.of();
+        }
+        String normalizedKeyword = normalize(keyword);
+        String normalizedResult = normalizeStatus(result);
+        return qualityRecordRepository.findByInspectorOrderByInspectionDateDesc(inspector.getId()).stream()
+                .filter(record -> normalizedResult.isEmpty() || normalizeStatus(record.getResult()).equals(normalizedResult))
+                .filter(record -> normalizedKeyword.isEmpty() || matchesRecordKeyword(record, normalizedKeyword))
+                .collect(Collectors.toList());
+    }
+
     public List<Batch> listProductionAlerts(String productionManagerEmail) {
         if (isBlank(productionManagerEmail)) {
             return List.of();
@@ -77,6 +95,9 @@ public class QualityService {
         Batch batch = requireBatch(batchId);
         String normalizedResult = normalizeResult(result);
         User inspector = resolveInspector(inspectorEmail);
+        if (!STATUS_PENDING.equals(safe(batch.getQualityStatus()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该批次已完成质检，如需返工请由生产管理员重新完工后再检验");
+        }
         if (STATUS_FAILED.equals(normalizedResult) && isBlank(remarks)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "不合格时请填写具体原因");
         }
@@ -105,6 +126,7 @@ public class QualityService {
 
         qualityRecordRepository.save(record);
         Batch saved = batchRepository.save(batch);
+        updateRelatedOrderStatus(saved, normalizedResult, remarks, inspectorEmail);
         notificationService.broadcast(
                 "/topic/quality",
                 new NotificationMessage(
@@ -140,6 +162,74 @@ public class QualityService {
         );
     }
 
+    private void notifyWarehouseForQualifiedBatch(Batch batch, String remarks) {
+        notificationService.broadcast(
+                "/topic/orders/warehouse",
+                new NotificationMessage(
+                        "QUALITY_PASSED_PENDING_STOCK_IN",
+                        "Batch",
+                        batch.getId(),
+                        new QualityNoticePayload(
+                                batch,
+                                "批次 " + batch.getBatchNo() + " 质检合格，请仓库确认入库。",
+                                blankToNull(remarks) == null ? safe(batch.getSourceOrderNo()) : remarks
+                        ),
+                        LocalDateTime.now()
+                )
+        );
+    }
+
+    private void updateRelatedOrderStatus(Batch batch, String normalizedResult, String remarks, String inspectorEmail) {
+        if (isBlank(batch.getSourceOrderNo())) {
+            return;
+        }
+        SalesOrder order = salesOrderRepository.findAll().stream()
+                .filter(item -> item.getOrderNo() != null && item.getOrderNo().equalsIgnoreCase(batch.getSourceOrderNo()))
+                .findFirst()
+                .orElse(null);
+        if (order == null) {
+            return;
+        }
+        if (STATUS_FAILED.equals(normalizedResult)) {
+            order.setStatus(OrderWorkflowService.STATUS_IN_PRODUCTION);
+            salesOrderRepository.save(order);
+            notificationService.broadcast(
+                    "/topic/orders",
+                    new NotificationMessage(
+                            "ORDER_BACK_TO_PRODUCTION",
+                            "SalesOrder",
+                            order.getId(),
+                            new QualityNoticePayload(batch,
+                                    "订单 " + order.getOrderNo() + " 对应批次质检不合格，已退回生产。",
+                                    blankToNull(remarks) == null ? safe(inspectorEmail) : remarks),
+                            LocalDateTime.now()
+                    )
+            );
+            return;
+        }
+
+        List<Batch> orderBatches = batchRepository.findBySourceOrderNoIgnoreCaseOrderByCreatedAtDesc(order.getOrderNo());
+        boolean allPassed = !orderBatches.isEmpty() && orderBatches.stream()
+                .allMatch(item -> STATUS_PASSED.equals(safe(item.getQualityStatus())));
+        if (allPassed) {
+            order.setStatus(OrderWorkflowService.STATUS_PENDING_PRODUCTION_STOCK_IN);
+            salesOrderRepository.save(order);
+            notifyWarehouseForQualifiedBatch(batch, remarks);
+            notificationService.broadcast(
+                    "/topic/orders",
+                    new NotificationMessage(
+                            "ORDER_READY_FOR_PRODUCTION_STOCK_IN",
+                            "SalesOrder",
+                            order.getId(),
+                            new QualityNoticePayload(batch,
+                                    "订单 " + order.getOrderNo() + " 对应成品质检完成，等待仓库入库。",
+                                    blankToNull(remarks)),
+                            LocalDateTime.now()
+                    )
+            );
+        }
+    }
+
     private Batch requireBatch(Long batchId) {
         if (batchId == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "批次ID不能为空");
@@ -165,6 +255,16 @@ public class QualityService {
                 || contains(batch.getProductionManagerEmail(), keyword)
                 || contains(batch.getProduct() == null ? null : batch.getProduct().getName(), keyword)
                 || contains(batch.getProduct() == null ? null : batch.getProduct().getSku(), keyword);
+    }
+
+    private boolean matchesRecordKeyword(QualityRecord record, String keyword) {
+        return contains(record.getInspectorName(), keyword)
+                || contains(record.getResult(), keyword)
+                || contains(record.getRemarks(), keyword)
+                || contains(record.getBatch() == null ? null : record.getBatch().getBatchNo(), keyword)
+                || contains(record.getBatch() == null ? null : record.getBatch().getSourceOrderNo(), keyword)
+                || contains(record.getProduct() == null ? null : record.getProduct().getName(), keyword)
+                || contains(record.getProduct() == null ? null : record.getProduct().getSku(), keyword);
     }
 
     private String resolveProductionManagerTopic(String email) {

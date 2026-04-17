@@ -4,10 +4,12 @@ import Orders from '../pages/Orders.vue';
 import Production from '../pages/Production.vue';
 import ProductionPlan from '../pages/ProductionPlan.vue';
 import Inventory from '../pages/Inventory.vue';
+import InventoryAlert from '../pages/InventoryAlert.vue';
 import Procurement from '../pages/Procurement.vue';
 import ProcurementPlan from '../pages/ProcurementPlan.vue';
 import Quality from '../pages/Quality.vue';
 import Customer from '../pages/Customer.vue';
+import AccountAdmin from '../pages/AccountAdmin.vue';
 import Login from '../pages/Login.vue';
 import Register from '../pages/Register.vue';
 import { canAccessRouteName, getDefaultRouteNameByRole, normalizeRole } from '../constants/access.js';
@@ -60,6 +62,12 @@ const routes = [
     meta: { title: '库存管理', subtitle: 'Stock in and out' }
   },
   {
+    path: '/inventory-alerts',
+    name: 'InventoryAlert',
+    component: InventoryAlert,
+    meta: { title: '库存预警', subtitle: 'Low-stock alerts and actions' }
+  },
+  {
     path: '/procurement',
     name: 'Procurement',
     component: Procurement,
@@ -88,6 +96,12 @@ const routes = [
     name: 'Customer',
     component: Customer,
     meta: { title: '客户门户', subtitle: 'Customer order lookup' }
+  },
+  {
+    path: '/account-admin',
+    name: 'AccountAdmin',
+    component: AccountAdmin,
+    meta: { title: '账号管理', subtitle: 'Internal staff accounts' }
   },
   {
     path: '/:pathMatch(.*)*',

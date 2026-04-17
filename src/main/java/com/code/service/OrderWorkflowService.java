@@ -39,6 +39,8 @@ public class OrderWorkflowService {
     public static final String STATUS_PENDING_WAREHOUSE_CHECK = "待仓库核查";
     public static final String STATUS_ACCEPTED = "已接单";
     public static final String STATUS_IN_PRODUCTION = "生产中";
+    public static final String STATUS_PENDING_QUALITY = "待质检";
+    public static final String STATUS_PENDING_PRODUCTION_STOCK_IN = "待生产入库";
     public static final String STATUS_SHIPPED = "已发货";
 
     @Autowired
@@ -99,16 +101,16 @@ public class OrderWorkflowService {
     public WarehouseReviewResult warehouseReview(Long orderId, String operator, String note) {
         SalesOrder order = getOrder(orderId);
         String currentStatus = safeStatus(order.getStatus());
-        if (!STATUS_PENDING_WAREHOUSE_CHECK.equals(currentStatus) && !STATUS_IN_PRODUCTION.equals(currentStatus)) {
+        if (!STATUS_PENDING_WAREHOUSE_CHECK.equals(currentStatus)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许仓库核查: " + order.getStatus());
         }
         if (order.getItems() == null || order.getItems().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "订单没有明细，无法执行库存核查");
         }
 
-        List<ProductionPlan> stockedPlans = stockInCompletedPlans(order, operator);
         List<ProductShortage> shortages = evaluateShortages(order);
         List<ProductionPlan> createdPlans = new ArrayList<>();
+        User operatorUser = resolveUserByEmail(operator);
 
         if (shortages.isEmpty()) {
             reserveInventoryForOrder(order);
@@ -125,7 +127,7 @@ public class OrderWorkflowService {
             );
         } else {
             order.setStatus(STATUS_IN_PRODUCTION);
-            createdPlans = createProductionPlans(order, shortages);
+            createdPlans = createProductionPlans(order, shortages, operatorUser);
             notificationService.broadcast(
                     "/topic/orders/production",
                     buildReviewMessage(
@@ -159,6 +161,7 @@ public class OrderWorkflowService {
         for (ProductionPlan plan : plans) {
             plan.setStatus("DONE");
             plan.setEndDate(LocalDateTime.now());
+            plan.setCompletedById(productionManager == null ? null : productionManager.getId());
             plan.setCompletedByEmail(blankToNull(operator));
             plan.setCompletedByName(resolveDisplayName(productionManager, operator));
         }
@@ -166,7 +169,8 @@ public class OrderWorkflowService {
             productionPlanRepository.saveAll(plans);
         }
 
-        order.setStatus(STATUS_PENDING_WAREHOUSE_CHECK);
+        prepareCompletedPlanBatchesForQuality(order, plans);
+        order.setStatus(STATUS_PENDING_QUALITY);
         SalesOrder saved = salesOrderRepository.save(order);
         NotificationMessage completionMessage = buildReviewMessage(
                 "ORDER_PRODUCTION_DONE",
@@ -175,10 +179,10 @@ public class OrderWorkflowService {
                 plans,
                 operator,
                 note,
-                "生产计划订单 " + summarizePlanNos(plans) + " 已完成，请仓库确认入库！",
+                "生产计划订单 " + summarizePlanNos(plans) + " 已完成，请质检员检验！",
                 note
         );
-        notificationService.broadcast("/topic/orders/warehouse", completionMessage);
+        notificationService.broadcast("/topic/quality", completionMessage);
         notificationService.broadcast("/topic/orders", buildOrderMessage("ORDER_WORKFLOW_UPDATED", saved, operator));
         return saved;
     }
@@ -186,7 +190,7 @@ public class OrderWorkflowService {
     @Transactional
     public SalesOrder confirmProductionStockIn(Long orderId, String operator, String note) {
         SalesOrder order = getOrder(orderId);
-        if (!STATUS_PENDING_WAREHOUSE_CHECK.equals(safeStatus(order.getStatus()))) {
+        if (!STATUS_PENDING_PRODUCTION_STOCK_IN.equals(safeStatus(order.getStatus()))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许确认生产入库: " + order.getStatus());
         }
 
@@ -196,7 +200,7 @@ public class OrderWorkflowService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前订单没有待入库的完工生产计划");
         }
 
-        List<ProductionPlan> stockedPlans = stockInCompletedPlans(order, operator);
+        List<ProductionPlan> stockedPlans = stockInCompletedPlans(order, operator, completedPlans);
         List<ProductShortage> shortages = evaluateShortages(order);
         if (!shortages.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "生产入库后库存仍不足，请检查生产计划是否全部完工");
@@ -224,7 +228,7 @@ public class OrderWorkflowService {
 
     public List<SalesOrder> listOrdersPendingProductionStockIn() {
         return salesOrderRepository.findAll().stream()
-                .filter(order -> STATUS_PENDING_WAREHOUSE_CHECK.equals(safeStatus(order.getStatus())))
+                .filter(order -> STATUS_PENDING_PRODUCTION_STOCK_IN.equals(safeStatus(order.getStatus())))
                 .filter(order -> !productionPlanRepository.findByPlanNoStartingWithAndStatus("PLAN-" + order.getOrderNo() + "-", "DONE").isEmpty())
                 .sorted(Comparator.comparing(SalesOrder::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
                 .toList();
@@ -236,8 +240,9 @@ public class OrderWorkflowService {
         if (!STATUS_ACCEPTED.equals(safeStatus(order.getStatus()))) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许仓库发货: " + order.getStatus());
         }
+        User operatorUser = resolveUserByEmail(operator);
         List<StockMovement> shipments = consumeInventoryForShipment(order);
-        shipments.forEach(movement -> createStockTransaction(movement.product, movement.warehouse, movement.quantity, "OUT", "SALES_ORDER", order.getId(), order.getCreatedBy()));
+        shipments.forEach(movement -> createStockTransaction(movement.product, movement.warehouse, movement.quantity, "OUT", "SALES_ORDER", order.getId(), operatorUser, note, null));
         order.setStatus(STATUS_SHIPPED);
         SalesOrder saved = salesOrderRepository.save(order);
 
@@ -265,16 +270,20 @@ public class OrderWorkflowService {
         return saved;
     }
 
-    private List<ProductionPlan> stockInCompletedPlans(SalesOrder order, String operator) {
-        String prefix = "PLAN-" + order.getOrderNo() + "-";
-        List<ProductionPlan> completedPlans = productionPlanRepository.findByPlanNoStartingWithAndStatus(prefix, "DONE");
+    private List<ProductionPlan> stockInCompletedPlans(SalesOrder order, String operator, List<ProductionPlan> completedPlans) {
         if (completedPlans.isEmpty()) {
             return List.of();
         }
+        User operatorUser = resolveUserByEmail(operator);
         for (ProductionPlan plan : completedPlans) {
             Product product = plan.getProduct();
             if (product == null || product.getId() == null) {
                 continue;
+            }
+            Batch batch = batchRepository.findBySourceOrderNoAndProductId(safeOrderNo(order.getOrderNo()), product.getId())
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "批次不存在，无法确认生产入库: " + product.getName()));
+            if (!QualityService.STATUS_PASSED.equals(safeStatus(batch.getQualityStatus()))) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "批次 " + batch.getBatchNo() + " 尚未质检合格，不能入库");
             }
             double quantity = safeNumber(plan.getPlannedQuantity());
             if (quantity <= 0) {
@@ -283,12 +292,27 @@ public class OrderWorkflowService {
             }
             Warehouse warehouse = resolveWarehouseForProduct(product.getId());
             InventoryItem item = findOrCreateInventoryItem(product, warehouse);
-            Batch batch = createOrUpdateBatch(order, plan, product, quantity);
             item.setQuantity(safeNumber(item.getQuantity()) + quantity);
             item.setLot(batch.getBatchNo());
             inventoryItemRepository.save(item);
-            createStockTransaction(product, warehouse, quantity, "IN", "PRODUCTION_PLAN", plan.getId(), plan.getCreatedBy(), batch.getBatchNo());
+            createStockTransaction(product, warehouse, quantity, "IN", "PRODUCTION_PLAN", plan.getId(), operatorUser, noteOrDefault("生产质检合格后仓库确认入库", operator), batch.getBatchNo());
             plan.setStatus("WAREHOUSED");
+        }
+        productionPlanRepository.saveAll(completedPlans);
+        return completedPlans;
+    }
+
+    private void prepareCompletedPlanBatchesForQuality(SalesOrder order, List<ProductionPlan> plans) {
+        for (ProductionPlan plan : plans) {
+            Product product = plan.getProduct();
+            if (product == null || product.getId() == null) {
+                continue;
+            }
+            double quantity = safeNumber(plan.getPlannedQuantity());
+            if (quantity <= 0) {
+                continue;
+            }
+            Batch batch = createOrUpdateBatch(order, plan, product, quantity);
             notificationService.broadcast(
                     "/topic/quality",
                     new NotificationMessage(
@@ -297,15 +321,13 @@ public class OrderWorkflowService {
                             batch.getId(),
                             new QualityService.QualityNoticePayload(
                                     batch,
-                                    "批次 " + batch.getBatchNo() + " 已入库待质检，请查看。",
+                                    "批次 " + batch.getBatchNo() + " 已完成生产，待质检，请查看。",
                                     product.getName() + " / 来源订单 " + safeOrderNo(batch.getSourceOrderNo())
                             ),
                             LocalDateTime.now()
                     )
             );
         }
-        productionPlanRepository.saveAll(completedPlans);
-        return completedPlans;
     }
 
     private Batch createOrUpdateBatch(SalesOrder order, ProductionPlan plan, Product product, double quantity) {
@@ -389,7 +411,7 @@ public class OrderWorkflowService {
         }
     }
 
-    private List<ProductionPlan> createProductionPlans(SalesOrder order, List<ProductShortage> shortages) {
+    private List<ProductionPlan> createProductionPlans(SalesOrder order, List<ProductShortage> shortages, User operatorUser) {
         List<ProductionPlan> plans = new ArrayList<>();
         for (ProductShortage shortage : shortages) {
             if (shortage.getShortageQuantity() <= 0) {
@@ -404,7 +426,8 @@ public class OrderWorkflowService {
             plan.setStatus("PLANNED");
             plan.setStartDate(LocalDateTime.now());
             plan.setEndDate(LocalDateTime.now().plusDays(7));
-            plan.setCreatedBy(order.getCreatedBy());
+            plan.setCreatedBy(operatorUser == null ? null : operatorUser.getId());
+            plan.setCreatedByName(resolveDisplayName(operatorUser, null));
             plans.add(productionPlanRepository.save(plan));
         }
         return plans;
@@ -499,7 +522,7 @@ public class OrderWorkflowService {
                                         String relatedType,
                                         Long relatedId,
                                         Long createdBy) {
-        createStockTransaction(product, warehouse, quantity, type, relatedType, relatedId, createdBy, null);
+        createStockTransaction(product, warehouse, quantity, type, relatedType, relatedId, createdBy, null, null, null);
     }
 
     private void createStockTransaction(Product product,
@@ -509,6 +532,35 @@ public class OrderWorkflowService {
                                         String relatedType,
                                         Long relatedId,
                                         Long createdBy,
+                                        String lot) {
+        createStockTransaction(product, warehouse, quantity, type, relatedType, relatedId, createdBy, null, null, lot);
+    }
+
+    private void createStockTransaction(Product product,
+                                        Warehouse warehouse,
+                                        double quantity,
+                                        String type,
+                                        String relatedType,
+                                        Long relatedId,
+                                        User operatorUser,
+                                        String remark,
+                                        String lot) {
+        createStockTransaction(product, warehouse, quantity, type, relatedType, relatedId,
+                operatorUser == null ? null : operatorUser.getId(),
+                operatorUser == null ? null : resolveDisplayName(operatorUser, null),
+                remark,
+                lot);
+    }
+
+    private void createStockTransaction(Product product,
+                                        Warehouse warehouse,
+                                        double quantity,
+                                        String type,
+                                        String relatedType,
+                                        Long relatedId,
+                                        Long createdBy,
+                                        String createdByName,
+                                        String remark,
                                         String lot) {
         StockTransaction tx = new StockTransaction();
         tx.setTransactionNo("ST-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
@@ -520,8 +572,14 @@ public class OrderWorkflowService {
         tx.setRelatedType(relatedType);
         tx.setRelatedId(relatedId);
         tx.setCreatedBy(createdBy);
+        tx.setCreatedByName(blankToNull(createdByName));
+        tx.setRemark(blankToNull(remark));
         tx.setCreatedAt(LocalDateTime.now());
         stockTransactionRepository.save(tx);
+    }
+
+    private String noteOrDefault(String fallback, String operator) {
+        return blankToNull(fallback) == null ? blankToNull(operator) : fallback;
     }
 
     private double totalAvailableByProduct(Long productId) {

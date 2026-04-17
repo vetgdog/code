@@ -25,6 +25,7 @@ public class PurchaseOrder {
     private String status = "CREATED";
     private Double totalAmount = 0.0;
     private Long createdBy;
+    private String createdByName;
     private String supplierNote;
     private String procurementNote;
     private String warehouseNote;

@@ -30,6 +30,7 @@ public class StockTransaction {
     private Long relatedId;
     private String remark;
     private Long createdBy;
+    private String createdByName;
     private LocalDateTime createdAt = LocalDateTime.now();
 }
 

@@ -62,8 +62,9 @@ public class ProcurementController {
     private WeeklyPlanningService weeklyPlanningService;
 
     @GetMapping("/requests")
+    @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
     public List<PurchaseRequest> listRequests() {
-        return purchaseRequestRepository.findAll();
+        return purchaseRequestRepository.findAllByOrderByRequestDateDesc();
     }
 
     @GetMapping("/suppliers")

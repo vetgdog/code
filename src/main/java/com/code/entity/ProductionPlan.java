@@ -25,6 +25,8 @@ public class ProductionPlan {
     private LocalDateTime endDate;
     private String status = "PLANNED";
     private Long createdBy;
+    private String createdByName;
+    private Long completedById;
     private String completedByEmail;
     private String completedByName;
     private LocalDateTime createdAt = LocalDateTime.now();

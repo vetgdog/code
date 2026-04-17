@@ -9,5 +9,6 @@ import java.util.List;
 @Repository
 public interface QualityRecordRepository extends JpaRepository<QualityRecord, Long> {
 	List<QualityRecord> findByBatchIdOrderByInspectionDateDesc(Long batchId);
+	List<QualityRecord> findByInspectorOrderByInspectionDateDesc(Long inspector);
 }
 

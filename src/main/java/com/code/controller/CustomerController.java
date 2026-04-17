@@ -3,10 +3,13 @@ package com.code.controller;
 import com.code.entity.Customer;
 import com.code.entity.OrderItem;
 import com.code.entity.Product;
+import com.code.entity.QualityRecord;
 import com.code.entity.SalesOrder;
 import com.code.entity.User;
+import com.code.repository.BatchRepository;
 import com.code.repository.CustomerRepository;
 import com.code.repository.ProductRepository;
+import com.code.repository.QualityRecordRepository;
 import com.code.repository.SalesOrderRepository;
 import com.code.repository.UserRepository;
 import com.code.service.OrderWorkflowService;
@@ -48,6 +51,12 @@ public class CustomerController {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private BatchRepository batchRepository;
+
+    @Autowired
+    private QualityRecordRepository qualityRecordRepository;
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
@@ -146,6 +155,37 @@ public class CustomerController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该订单");
         }
         return order;
+    }
+
+    @GetMapping("/quality-trace")
+    public QualityTraceView traceQuality(@org.springframework.web.bind.annotation.RequestParam String orderNo,
+                                         Authentication authentication) {
+        Customer customer = requireCurrentCustomer(authentication);
+        if (isBlank(orderNo)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请输入订单号");
+        }
+        SalesOrder order = salesOrderRepository.findAll().stream()
+                .filter(item -> item.getOrderNo() != null && item.getOrderNo().equalsIgnoreCase(orderNo.trim()))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "订单不存在"));
+        if (order.getCustomer() == null || !customer.getId().equals(order.getCustomer().getId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权查询该订单的质量信息");
+        }
+        List<BatchQualityView> batches = batchRepository.findBySourceOrderNoIgnoreCaseOrderByCreatedAtDesc(order.getOrderNo()).stream()
+                .map(batch -> new BatchQualityView(
+                        batch.getId(),
+                        batch.getBatchNo(),
+                        batch.getProduct() == null ? null : batch.getProduct().getSku(),
+                        batch.getProduct() == null ? null : batch.getProduct().getName(),
+                        batch.getQuantity(),
+                        batch.getQualityStatus(),
+                        batch.getQualityRemark(),
+                        batch.getQualityInspectorName(),
+                        batch.getQualityInspectedAt(),
+                        qualityRecordRepository.findByBatchIdOrderByInspectionDateDesc(batch.getId())
+                ))
+                .collect(Collectors.toList());
+        return new QualityTraceView(order.getId(), order.getOrderNo(), order.getStatus(), batches);
     }
 
     private Customer requireCurrentCustomer(Authentication authentication) {
@@ -289,6 +329,82 @@ public class CustomerController {
         public void setUnitPrice(Double unitPrice) {
             this.unitPrice = unitPrice;
         }
+    }
+
+    public static class QualityTraceView {
+        private final Long orderId;
+        private final String orderNo;
+        private final String status;
+        private final List<BatchQualityView> batches;
+
+        public QualityTraceView(Long orderId, String orderNo, String status, List<BatchQualityView> batches) {
+            this.orderId = orderId;
+            this.orderNo = orderNo;
+            this.status = status;
+            this.batches = batches;
+        }
+
+        public Long getOrderId() {
+            return orderId;
+        }
+
+        public String getOrderNo() {
+            return orderNo;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public List<BatchQualityView> getBatches() {
+            return batches;
+        }
+    }
+
+    public static class BatchQualityView {
+        private final Long id;
+        private final String batchNo;
+        private final String productSku;
+        private final String productName;
+        private final Double quantity;
+        private final String qualityStatus;
+        private final String qualityRemark;
+        private final String inspectorName;
+        private final LocalDateTime inspectedAt;
+        private final List<QualityRecord> records;
+
+        public BatchQualityView(Long id,
+                                String batchNo,
+                                String productSku,
+                                String productName,
+                                Double quantity,
+                                String qualityStatus,
+                                String qualityRemark,
+                                String inspectorName,
+                                LocalDateTime inspectedAt,
+                                List<QualityRecord> records) {
+            this.id = id;
+            this.batchNo = batchNo;
+            this.productSku = productSku;
+            this.productName = productName;
+            this.quantity = quantity;
+            this.qualityStatus = qualityStatus;
+            this.qualityRemark = qualityRemark;
+            this.inspectorName = inspectorName;
+            this.inspectedAt = inspectedAt;
+            this.records = records;
+        }
+
+        public Long getId() { return id; }
+        public String getBatchNo() { return batchNo; }
+        public String getProductSku() { return productSku; }
+        public String getProductName() { return productName; }
+        public Double getQuantity() { return quantity; }
+        public String getQualityStatus() { return qualityStatus; }
+        public String getQualityRemark() { return qualityRemark; }
+        public String getInspectorName() { return inspectorName; }
+        public LocalDateTime getInspectedAt() { return inspectedAt; }
+        public List<QualityRecord> getRecords() { return records; }
     }
 }
 

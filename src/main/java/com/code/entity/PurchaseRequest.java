@@ -17,6 +17,13 @@ public class PurchaseRequest {
     private String requestNo;
 
     private Long requestedBy;
+    private String requestedByName;
+
+    @ManyToOne
+    @JoinColumn(name = "product_id")
+    private Product product;
+
+    private Double requestedQuantity = 0.0;
 
     @ManyToOne
     @JoinColumn(name = "supplier_id")

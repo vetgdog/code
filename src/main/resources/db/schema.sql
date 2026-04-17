@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS `sales_record` (
   `shipping_address` VARCHAR(500),
   `status` VARCHAR(50),
   `created_by` BIGINT,
+  `created_by_name` VARCHAR(200),
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -150,6 +151,8 @@ CREATE TABLE IF NOT EXISTS `production_plan` (
   `end_date` DATETIME, -- 结束日期
   `status` VARCHAR(50) DEFAULT 'PLANNED', -- 计划状态
   `created_by` BIGINT, -- 创建人ID
+  `created_by_name` VARCHAR(200), -- 创建人姓名
+  `completed_by_id` BIGINT, -- 完工生产管理员ID
   `completed_by_email` VARCHAR(200), -- 完工生产管理员邮箱
   `completed_by_name` VARCHAR(200), -- 完工生产管理员姓名
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
@@ -192,6 +195,9 @@ CREATE TABLE IF NOT EXISTS `purchase_request` (
   `id` BIGINT AUTO_INCREMENT PRIMARY KEY, -- 申请表ID
   `request_no` VARCHAR(100) NOT NULL UNIQUE, -- 申请编号
   `requested_by` BIGINT, -- 申请人ID
+  `requested_by_name` VARCHAR(200), -- 申请人姓名
+  `product_id` BIGINT, -- 原材料ID
+  `requested_quantity` DECIMAL(18,4) DEFAULT 0, -- 申请数量
   `supplier_id` BIGINT, -- 供应商用户ID
   `request_date` DATETIME DEFAULT CURRENT_TIMESTAMP, -- 申请日期
   `status` VARCHAR(50) DEFAULT 'OPEN', -- 申请状态
@@ -208,6 +214,7 @@ CREATE TABLE IF NOT EXISTS `purchase_order` (
   `status` VARCHAR(50) DEFAULT 'CREATED', -- 订单状态
   `total_amount` DECIMAL(18,2) DEFAULT 0, -- 总金额
   `created_by` BIGINT, -- 创建人ID
+  `created_by_name` VARCHAR(200), -- 创建人姓名
   `supplier_note` VARCHAR(500), -- 供应商备注
   `procurement_note` VARCHAR(500), -- 采购备注
   `warehouse_note` VARCHAR(500), -- 仓库备注
@@ -258,6 +265,7 @@ CREATE TABLE IF NOT EXISTS `stock_transaction` (
   `related_id` BIGINT, -- 相关ID
   `remark` VARCHAR(500), -- 备注
   `created_by` BIGINT, -- 创建人ID
+  `created_by_name` VARCHAR(200), -- 创建人姓名
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP -- 创建时间
   -- 外键约束：fk_st_product (product_id -> products.id)
   -- 外键约束：fk_st_warehouse (warehouse_id -> warehouses.id)

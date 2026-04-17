@@ -45,6 +45,14 @@ public class QualityController {
         return qualityService.listRecords(batchId);
     }
 
+    @GetMapping("/my-records")
+    @PreAuthorize("hasAnyRole('QUALITY_INSPECTOR','ADMIN')")
+    public List<QualityRecord> listMyRecords(@RequestParam(required = false) String keyword,
+                                             @RequestParam(required = false) String result,
+                                             Authentication authentication) {
+        return qualityService.listMyRecords(authentication == null ? "" : authentication.getName(), keyword, result);
+    }
+
     @PostMapping("/batch/{batchId}/inspect")
     @PreAuthorize("hasAnyRole('QUALITY_INSPECTOR','ADMIN')")
     public ResponseEntity<Batch> inspect(@PathVariable Long batchId,

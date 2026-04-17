@@ -3,6 +3,7 @@ package com.code.service;
 import com.code.entity.Batch;
 import com.code.entity.Product;
 import com.code.entity.QualityRecord;
+import com.code.repository.SalesOrderRepository;
 import com.code.entity.User;
 import com.code.repository.BatchRepository;
 import com.code.repository.QualityRecordRepository;
@@ -44,6 +45,9 @@ class QualityServiceTest {
     private QualityRecordRepository qualityRecordRepository;
 
     @Mock
+    private SalesOrderRepository salesOrderRepository;
+
+    @Mock
     private UserRepository userRepository;
 
     @Mock
@@ -59,6 +63,7 @@ class QualityServiceTest {
 
         when(batchRepository.findById(1L)).thenReturn(Optional.of(batch));
         when(userRepository.findByEmailIgnoreCase("quality@test.com")).thenReturn(Optional.of(inspector));
+        when(salesOrderRepository.findAll()).thenReturn(List.of());
         when(qualityRecordRepository.save(any(QualityRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(batchRepository.save(any(Batch.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -81,6 +86,7 @@ class QualityServiceTest {
         Batch batch = buildBatch();
         when(batchRepository.findById(1L)).thenReturn(Optional.of(batch));
         when(userRepository.findByEmailIgnoreCase("quality@test.com")).thenReturn(Optional.empty());
+        when(salesOrderRepository.findAll()).thenReturn(List.of());
         when(qualityRecordRepository.save(any(QualityRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(batchRepository.save(any(Batch.class))).thenAnswer(invocation -> invocation.getArgument(0));
 

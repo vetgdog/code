@@ -58,16 +58,37 @@ public class ProductionController {
     @GetMapping("/records")
     public List<ProductionRecordView> listRecords(@RequestParam(required = false) String startDate,
                                                   @RequestParam(required = false) String endDate,
-                                                  @RequestParam(required = false) String keyword) {
+                                                  @RequestParam(required = false) String keyword,
+                                                  Authentication authentication) {
+        return queryRecords(startDate, endDate, keyword, authentication, false);
+    }
+
+    @GetMapping("/records/overview")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    public List<ProductionRecordView> listRecordOverview(@RequestParam(required = false) String startDate,
+                                                         @RequestParam(required = false) String endDate,
+                                                         @RequestParam(required = false) String keyword,
+                                                         Authentication authentication) {
+        return queryRecords(startDate, endDate, keyword, authentication, true);
+    }
+
+    private List<ProductionRecordView> queryRecords(String startDate,
+                                                    String endDate,
+                                                    String keyword,
+                                                    Authentication authentication,
+                                                    boolean includeAllOperators) {
         LocalDateTime start = parseStartDate(startDate);
         LocalDateTime end = parseEndDate(endDate);
         if (start != null && end != null && end.isBefore(start)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "结束日期不能早于开始日期");
         }
         String normalizedKeyword = normalize(keyword);
+        boolean admin = hasRole(authentication, "ROLE_ADMIN");
+        String currentEmail = authentication == null ? "" : normalize(authentication.getName());
 
         return productionPlanRepository.findAll().stream()
                 .filter(plan -> isProductionRecord(plan.getStatus()))
+                .filter(plan -> includeAllOperators || admin || currentEmail.isEmpty() || currentEmail.equals(normalize(plan.getCompletedByEmail())))
                 .filter(plan -> start == null || (resolveCompletedAt(plan) != null && !resolveCompletedAt(plan).isBefore(start)))
                 .filter(plan -> end == null || (resolveCompletedAt(plan) != null && !resolveCompletedAt(plan).isAfter(end)))
                 .map(this::toRecordView)
@@ -129,6 +150,10 @@ public class ProductionController {
                 plan.getProduct() == null ? null : plan.getProduct().getName(),
                 plan.getPlannedQuantity(),
                 plan.getStatus(),
+                plan.getCreatedBy(),
+                plan.getCreatedByName(),
+                plan.getCompletedById(),
+                plan.getCompletedByName(),
                 plan.getStartDate(),
                 resolveCompletedAt(plan),
                 plan.getCreatedAt()
@@ -152,6 +177,14 @@ public class ProductionController {
 
     private LocalDateTime resolveCompletedAt(ProductionPlan plan) {
         return plan.getEndDate() != null ? plan.getEndDate() : plan.getCreatedAt();
+    }
+
+    private boolean hasRole(Authentication authentication, String roleName) {
+        return authentication != null
+                && authentication.getAuthorities() != null
+                && authentication.getAuthorities().stream()
+                .map(authority -> authority == null ? "" : authority.getAuthority())
+                .anyMatch(role -> roleName.equalsIgnoreCase(role));
     }
 
     private String resolveOrderNo(String planNo) {
@@ -228,6 +261,10 @@ public class ProductionController {
         private final String productName;
         private final Double plannedQuantity;
         private final String status;
+        private final Long createdBy;
+        private final String createdByName;
+        private final Long completedById;
+        private final String completedByName;
         private final LocalDateTime startDate;
         private final LocalDateTime completedAt;
         private final LocalDateTime createdAt;
@@ -239,6 +276,10 @@ public class ProductionController {
                                     String productName,
                                     Double plannedQuantity,
                                     String status,
+                                    Long createdBy,
+                                    String createdByName,
+                                    Long completedById,
+                                    String completedByName,
                                     LocalDateTime startDate,
                                     LocalDateTime completedAt,
                                     LocalDateTime createdAt) {
@@ -249,6 +290,10 @@ public class ProductionController {
             this.productName = productName;
             this.plannedQuantity = plannedQuantity;
             this.status = status;
+            this.createdBy = createdBy;
+            this.createdByName = createdByName;
+            this.completedById = completedById;
+            this.completedByName = completedByName;
             this.startDate = startDate;
             this.completedAt = completedAt;
             this.createdAt = createdAt;
@@ -280,6 +325,22 @@ public class ProductionController {
 
         public String getStatus() {
             return status;
+        }
+
+        public Long getCreatedBy() {
+            return createdBy;
+        }
+
+        public String getCreatedByName() {
+            return createdByName;
+        }
+
+        public Long getCompletedById() {
+            return completedById;
+        }
+
+        public String getCompletedByName() {
+            return completedByName;
         }
 
         public LocalDateTime getStartDate() {

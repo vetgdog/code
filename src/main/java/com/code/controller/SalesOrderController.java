@@ -7,6 +7,7 @@ import com.code.repository.SalesOrderRepository;
 import com.code.entity.ProductionPlan;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.SalesRecordRepository;
+import com.code.repository.UserRepository;
 import com.code.service.OrderWorkflowService;
 import com.code.websocket.NotificationMessage;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +44,9 @@ public class SalesOrderController {
 
     @Autowired
     private SalesRecordRepository salesRecordRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Autowired
     private OrderWorkflowService orderWorkflowService;
@@ -164,6 +168,10 @@ public class SalesOrderController {
             return ResponseEntity.ok(order);
         }
         if ("REJECT".equals(normalized)) {
+            String rejectReason = request == null ? "" : request.getNote();
+            if (rejectReason == null || rejectReason.trim().isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "销售拒绝订单时必须填写拒绝理由");
+            }
             SalesOrder order = updateSalesStatus(orderId, "已拒绝", "ORDER_REJECTED", authentication);
             return ResponseEntity.ok(order);
         }
@@ -198,7 +206,15 @@ public class SalesOrderController {
                                               @RequestParam(required = false) String endDate,
                                               Authentication authentication) {
         ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
-        return querySalesRecords(startDate, endDate);
+        return querySalesRecords(startDate, endDate, authentication);
+    }
+
+    @GetMapping("/sales-records/overview")
+    public List<SalesRecord> listSalesRecordOverview(@RequestParam(required = false) String startDate,
+                                                     @RequestParam(required = false) String endDate,
+                                                     Authentication authentication) {
+        ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
+        return queryAllSalesRecords(startDate, endDate);
     }
 
     @GetMapping("/sales-records/export")
@@ -206,7 +222,7 @@ public class SalesOrderController {
                                                      @RequestParam(required = false) String endDate,
                                                      Authentication authentication) {
         ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
-        List<SalesRecord> records = querySalesRecords(startDate, endDate);
+        List<SalesRecord> records = querySalesRecords(startDate, endDate, authentication);
         String csv = buildSalesRecordCsv(records);
         String fileName = "sales-records-" + LocalDate.now() + ".csv";
         return ResponseEntity.ok()
@@ -215,22 +231,44 @@ public class SalesOrderController {
                 .body(csv);
     }
 
-    private List<SalesRecord> querySalesRecords(String startDate, String endDate) {
+    private List<SalesRecord> querySalesRecords(String startDate, String endDate, Authentication authentication) {
         LocalDateTime start = parseStartDate(startDate);
         LocalDateTime end = parseEndDate(endDate);
+        List<SalesRecord> baseRecords = resolveVisibleSalesRecords(authentication);
+        return filterSalesRecordsByDate(baseRecords, start, end);
+    }
+
+    private List<SalesRecord> queryAllSalesRecords(String startDate, String endDate) {
+        LocalDateTime start = parseStartDate(startDate);
+        LocalDateTime end = parseEndDate(endDate);
+        return filterSalesRecordsByDate(salesRecordRepository.findAllByOrderByCreatedAtDesc(), start, end);
+    }
+
+    private List<SalesRecord> filterSalesRecordsByDate(List<SalesRecord> baseRecords, LocalDateTime start, LocalDateTime end) {
         if (start != null && end != null) {
             if (end.isBefore(start)) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "结束日期不能早于开始日期");
             }
-            return salesRecordRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(start, end);
+            return baseRecords.stream().filter(record -> record.getCreatedAt() != null && !record.getCreatedAt().isBefore(start) && !record.getCreatedAt().isAfter(end)).toList();
         }
         if (start != null) {
-            return salesRecordRepository.findByCreatedAtGreaterThanEqualOrderByCreatedAtDesc(start);
+            return baseRecords.stream().filter(record -> record.getCreatedAt() != null && !record.getCreatedAt().isBefore(start)).toList();
         }
         if (end != null) {
-            return salesRecordRepository.findByCreatedAtLessThanEqualOrderByCreatedAtDesc(end);
+            return baseRecords.stream().filter(record -> record.getCreatedAt() != null && !record.getCreatedAt().isAfter(end)).toList();
         }
-        return salesRecordRepository.findAllByOrderByCreatedAtDesc();
+        return baseRecords;
+    }
+
+    private List<SalesRecord> resolveVisibleSalesRecords(Authentication authentication) {
+        if (hasRole(authentication, "ROLE_ADMIN")) {
+            return salesRecordRepository.findAllByOrderByCreatedAtDesc();
+        }
+        Long currentUserId = resolveCurrentUserId(authentication == null ? "" : authentication.getName());
+        if (currentUserId == null) {
+            return List.of();
+        }
+        return salesRecordRepository.findByCreatedByOrderByCreatedAtDesc(currentUserId);
     }
 
     private LocalDateTime parseStartDate(String raw) {
@@ -257,7 +295,7 @@ public class SalesOrderController {
 
     private String buildSalesRecordCsv(List<SalesRecord> records) {
         StringBuilder builder = new StringBuilder();
-        builder.append("recordNo,orderNo,customerName,shippingAddress,totalAmount,status,createdAt\n");
+        builder.append("recordNo,orderNo,customerName,shippingAddress,totalAmount,status,createdBy,createdByName,createdAt\n");
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (SalesRecord record : records) {
             builder.append(csvField(record.getRecordNo())).append(',')
@@ -266,6 +304,8 @@ public class SalesOrderController {
                     .append(csvField(record.getShippingAddress())).append(',')
                     .append(record.getTotalAmount() == null ? "0" : record.getTotalAmount()).append(',')
                     .append(csvField(record.getStatus())).append(',')
+                    .append(csvField(record.getCreatedBy() == null ? "" : String.valueOf(record.getCreatedBy()))).append(',')
+                    .append(csvField(record.getCreatedByName())).append(',')
                     .append(csvField(record.getCreatedAt() == null ? "" : record.getCreatedAt().format(formatter)))
                     .append('\n');
         }
@@ -292,6 +332,7 @@ public class SalesOrderController {
         if (salesRecordRepository.findBySalesOrderId(order.getId()).isPresent()) {
             return;
         }
+        com.code.entity.User operatorUser = userRepository.findByEmailIgnoreCase(operator == null ? "" : operator.trim()).orElse(null);
         SalesRecord record = new SalesRecord();
         record.setRecordNo("SR-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
         record.setSalesOrder(order);
@@ -300,7 +341,8 @@ public class SalesOrderController {
         record.setCustomerName(order.getCustomer() == null ? "" : order.getCustomer().getName());
         record.setShippingAddress(order.getShippingAddress());
         record.setStatus(order.getStatus());
-        record.setCreatedBy(order.getCreatedBy());
+        record.setCreatedBy(operatorUser == null ? null : operatorUser.getId());
+        record.setCreatedByName(resolveUserDisplayName(operatorUser, operator));
         record.setCreatedAt(LocalDateTime.now());
         SalesRecord savedRecord = salesRecordRepository.save(record);
 
@@ -321,6 +363,31 @@ public class SalesOrderController {
             }
         }
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "无权限执行该操作");
+    }
+
+    private boolean hasRole(Authentication authentication, String roleName) {
+        if (authentication == null || authentication.getAuthorities() == null) {
+            return false;
+        }
+        return authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .anyMatch(role -> roleName.equalsIgnoreCase(role));
+    }
+
+    private Long resolveCurrentUserId(String email) {
+        return userRepository.findByEmailIgnoreCase(email == null ? "" : email.trim())
+                .map(com.code.entity.User::getId)
+                .orElse(null);
+    }
+
+    private String resolveUserDisplayName(com.code.entity.User user, String fallback) {
+        if (user == null) {
+            return fallback == null || fallback.isBlank() ? null : fallback.trim();
+        }
+        if (user.getName() != null && !user.getName().isBlank()) {
+            return user.getName();
+        }
+        return fallback == null || fallback.isBlank() ? user.getEmail() : fallback.trim();
     }
 
     public static class WorkflowActionRequest {

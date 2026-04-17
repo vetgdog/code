@@ -3,13 +3,17 @@ package com.code.controller;
 import com.code.entity.InventoryItem;
 import com.code.entity.Product;
 import com.code.entity.StockTransaction;
+import com.code.entity.User;
 import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.StockTransactionRepository;
+import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -36,6 +40,9 @@ public class InventoryController {
 
     @Autowired
     private WarehouseRepository warehouseRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @GetMapping
     public List<InventoryItem> listAll(@RequestParam(required = false) String keyword,
@@ -82,10 +89,12 @@ public class InventoryController {
     }
 
     @PostMapping("/stock-in")
-    public InventoryItem stockIn(@RequestBody StockTransaction tx) {
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    public InventoryItem stockIn(@RequestBody StockTransaction tx, Authentication authentication) {
         Product product = requireProduct(tx);
         Warehouse warehouse = requireWarehouse(tx);
         double changeQuantity = requirePositiveQuantity(tx);
+        User operator = resolveCurrentUser(authentication);
 
         InventoryItem item = findOrCreateInventoryItem(product, warehouse);
         item.setQuantity(safeNumber(item.getQuantity()) + changeQuantity);
@@ -98,6 +107,8 @@ public class InventoryController {
         tx.setWarehouse(warehouse);
         tx.setTransactionType("IN");
         tx.setChangeQuantity(changeQuantity);
+        tx.setCreatedBy(operator == null ? null : operator.getId());
+        tx.setCreatedByName(resolveDisplayName(operator, authentication == null ? "" : authentication.getName()));
         tx.setCreatedAt(LocalDateTime.now());
         stockTransactionRepository.save(tx);
 
@@ -105,10 +116,12 @@ public class InventoryController {
     }
 
     @PostMapping("/stock-out")
-    public InventoryItem stockOut(@RequestBody StockTransaction tx) {
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    public InventoryItem stockOut(@RequestBody StockTransaction tx, Authentication authentication) {
         Product product = requireProduct(tx);
         Warehouse warehouse = requireWarehouse(tx);
         double changeQuantity = requirePositiveQuantity(tx);
+        User operator = resolveCurrentUser(authentication);
 
         InventoryItem item = inventoryItemRepository.findAll().stream()
                 .filter(i -> matchesProduct(i, product.getId()) && matchesWarehouse(i, warehouse.getId()))
@@ -130,6 +143,8 @@ public class InventoryController {
         tx.setWarehouse(warehouse);
         tx.setTransactionType("OUT");
         tx.setChangeQuantity(changeQuantity);
+        tx.setCreatedBy(operator == null ? null : operator.getId());
+        tx.setCreatedByName(resolveDisplayName(operator, authentication == null ? "" : authentication.getName()));
         tx.setCreatedAt(LocalDateTime.now());
         stockTransactionRepository.save(tx);
 
@@ -224,6 +239,20 @@ public class InventoryController {
 
     private String buildTransactionNo() {
         return "ST-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+    }
+
+    private User resolveCurrentUser(Authentication authentication) {
+        if (authentication == null || authentication.getName() == null) {
+            return null;
+        }
+        return userRepository.findByEmailIgnoreCase(authentication.getName().trim()).orElse(null);
+    }
+
+    private String resolveDisplayName(User user, String fallback) {
+        if (user != null && user.getName() != null && !user.getName().isBlank()) {
+            return user.getName();
+        }
+        return isBlank(fallback) ? null : fallback.trim();
     }
 
     private LocalDateTime parseStartDate(String raw) {
