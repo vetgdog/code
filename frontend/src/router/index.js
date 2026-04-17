@@ -2,8 +2,10 @@ import { createRouter, createWebHistory } from 'vue-router';
 import Dashboard from '../pages/Dashboard.vue';
 import Orders from '../pages/Orders.vue';
 import Production from '../pages/Production.vue';
+import ProductionPlan from '../pages/ProductionPlan.vue';
 import Inventory from '../pages/Inventory.vue';
 import Procurement from '../pages/Procurement.vue';
+import ProcurementPlan from '../pages/ProcurementPlan.vue';
 import Quality from '../pages/Quality.vue';
 import Customer from '../pages/Customer.vue';
 import Login from '../pages/Login.vue';
@@ -46,6 +48,12 @@ const routes = [
     meta: { title: '生产任务', subtitle: 'Tasks and status updates' }
   },
   {
+    path: '/production-plan',
+    name: 'ProductionPlan',
+    component: ProductionPlan,
+    meta: { title: '生产计划', subtitle: 'Weekly production planning' }
+  },
+  {
     path: '/inventory',
     name: 'Inventory',
     component: Inventory,
@@ -56,6 +64,12 @@ const routes = [
     name: 'Procurement',
     component: Procurement,
     meta: { title: '采购管理', subtitle: 'Requests and orders' }
+  },
+  {
+    path: '/procurement-plan',
+    name: 'ProcurementPlan',
+    component: ProcurementPlan,
+    meta: { title: '采购计划', subtitle: 'Weekly raw material planning' }
   },
   {
     path: '/supply',

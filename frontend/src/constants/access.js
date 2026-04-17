@@ -16,7 +16,7 @@ export const INTERNAL_POSITIONS = [
 const ROLE_CONFIG = {
   ROLE_ADMIN: {
     defaultRouteName: 'Dashboard',
-    routeNames: ['Dashboard', 'Orders', 'Production', 'Inventory', 'Procurement', 'Quality', 'Customer'],
+    routeNames: ['Dashboard', 'Orders', 'Production', 'ProductionPlan', 'Inventory', 'Procurement', 'ProcurementPlan', 'Quality', 'Customer'],
     permissions: [
       'dashboard:view',
       'orders:view',
@@ -27,11 +27,13 @@ const ROLE_CONFIG = {
       'production:view',
       'production:create',
       'production:update',
+      'production:plan:view',
       'inventory:view',
       'inventory:edit',
       'inventory:receive',
       'procurement:view',
       'procurement:create',
+      'procurement:plan:view',
       'procurement:raw-material-manage',
       'procurement:supplier-act',
       'procurement:notify-warehouse',
@@ -56,13 +58,13 @@ const ROLE_CONFIG = {
   },
   ROLE_PROCUREMENT_MANAGER: {
     defaultRouteName: 'Procurement',
-    routeNames: ['Dashboard', 'Procurement'],
-    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'procurement:notify-warehouse']
+    routeNames: ['Dashboard', 'Procurement', 'ProcurementPlan'],
+    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'procurement:notify-warehouse', 'procurement:plan:view']
   },
   ROLE_PRODUCTION_MANAGER: {
     defaultRouteName: 'Production',
-    routeNames: ['Dashboard', 'Production', 'Orders'],
-    permissions: ['dashboard:view', 'production:view', 'production:create', 'production:update', 'orders:view']
+    routeNames: ['Dashboard', 'Production', 'ProductionPlan', 'Orders'],
+    permissions: ['dashboard:view', 'production:view', 'production:create', 'production:update', 'production:plan:view', 'orders:view']
   },
   ROLE_WAREHOUSE_MANAGER: {
     defaultRouteName: 'Inventory',

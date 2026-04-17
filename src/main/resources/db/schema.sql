@@ -303,6 +303,65 @@ CREATE TABLE IF NOT EXISTS `quality_record` (
   -- 外键约束：fk_qr_product (product_id -> products.id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 周度生产计划表
+CREATE TABLE IF NOT EXISTS `production_weekly_plan` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `week_start` DATE NOT NULL,
+  `week_end` DATE,
+  `based_on_week_start` DATE,
+  `based_on_week_end` DATE,
+  `status` VARCHAR(50) DEFAULT 'GENERATED',
+  `generated_by` VARCHAR(200),
+  `algorithm_note` VARCHAR(500),
+  `generated_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_production_weekly_plan_week_start` (`week_start`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 周度生产计划明细表
+CREATE TABLE IF NOT EXISTS `production_weekly_plan_item` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `plan_id` BIGINT NOT NULL,
+  `product_id` BIGINT,
+  `suggested_quantity` DECIMAL(18,4) DEFAULT 0,
+  `last_week_produced_quantity` DECIMAL(18,4) DEFAULT 0,
+  `active_demand_quantity` DECIMAL(18,4) DEFAULT 0,
+  `available_inventory_quantity` DECIMAL(18,4) DEFAULT 0,
+  `baseline_quantity` DECIMAL(18,4) DEFAULT 0,
+  `growth_factor` DECIMAL(18,4) DEFAULT 1.1,
+  `suggestion_reason` VARCHAR(500)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 周度采购计划表
+CREATE TABLE IF NOT EXISTS `procurement_weekly_plan` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `week_start` DATE NOT NULL,
+  `week_end` DATE,
+  `based_on_week_start` DATE,
+  `based_on_week_end` DATE,
+  `status` VARCHAR(50) DEFAULT 'GENERATED',
+  `generated_by` VARCHAR(200),
+  `algorithm_note` VARCHAR(500),
+  `generated_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY `uk_procurement_weekly_plan_week_start` (`week_start`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 周度采购计划明细表
+CREATE TABLE IF NOT EXISTS `procurement_weekly_plan_item` (
+  `id` BIGINT AUTO_INCREMENT PRIMARY KEY,
+  `plan_id` BIGINT NOT NULL,
+  `product_id` BIGINT,
+  `preferred_supplier` VARCHAR(255),
+  `suggested_quantity` DECIMAL(18,4) DEFAULT 0,
+  `last_week_procured_quantity` DECIMAL(18,4) DEFAULT 0,
+  `bom_demand_quantity` DECIMAL(18,4) DEFAULT 0,
+  `available_inventory_quantity` DECIMAL(18,4) DEFAULT 0,
+  `in_transit_quantity` DECIMAL(18,4) DEFAULT 0,
+  `safety_stock_gap` DECIMAL(18,4) DEFAULT 0,
+  `suggestion_reason` VARCHAR(500)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- Indexes for performance
 CREATE INDEX idx_sales_order_customer ON `sales_order`(`customer_id`); -- 销售订单客户索引
 CREATE INDEX idx_order_item_product ON `order_item`(`product_id`); -- 订单子项产品索引

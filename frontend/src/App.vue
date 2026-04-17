@@ -43,8 +43,10 @@ const navItems = computed(() => {
     { label: '总览', icon: 'dashboard', to: '/', routeName: 'Dashboard' },
     { label: '订单管理', icon: 'assignment', to: '/orders', routeName: 'Orders' },
     { label: '生产任务', icon: 'factory', to: '/production', routeName: 'Production' },
+    { label: '生产计划', icon: 'calendar_month', to: '/production-plan', routeName: 'ProductionPlan' },
     { label: '库存管理', icon: 'inventory_2', to: '/inventory', routeName: 'Inventory' },
     procurementNavItem,
+    { label: '采购计划', icon: 'event_note', to: '/procurement-plan', routeName: 'ProcurementPlan' },
     { label: '质量追溯', icon: 'verified', to: '/quality', routeName: 'Quality' },
     { label: '客户门户', icon: 'support_agent', to: '/customer', routeName: 'Customer' }
   ];

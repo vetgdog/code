@@ -142,6 +142,10 @@ const formatNotificationTitle = (event) => {
       return '成品批次质检合格。';
     case 'QUALITY_REWORK_REQUIRED':
       return '发现不合格成品，已通知责任生产管理员。';
+    case 'PRODUCTION_WEEKLY_PLAN_GENERATED':
+      return '本周生产计划已自动生成。';
+    case 'PROCUREMENT_WEEKLY_PLAN_GENERATED':
+      return '本周采购计划已自动生成。';
     default:
       return `${event?.messageType || '系统消息'} · ${event?.entity || 'Event'}`;
   }

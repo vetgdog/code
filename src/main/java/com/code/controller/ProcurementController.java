@@ -2,6 +2,7 @@ package com.code.controller;
 
 import com.code.dto.ProcurementExportRowDto;
 import com.code.dto.SupplierDashboardDto;
+import com.code.entity.ProcurementWeeklyPlan;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseRequest;
@@ -9,6 +10,7 @@ import com.code.entity.User;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseRequestRepository;
 import com.code.service.ProcurementWorkflowService;
+import com.code.service.WeeklyPlanningService;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -56,6 +58,9 @@ public class ProcurementController {
     @Autowired
     private ProcurementWorkflowService procurementWorkflowService;
 
+    @Autowired
+    private WeeklyPlanningService weeklyPlanningService;
+
     @GetMapping("/requests")
     public List<PurchaseRequest> listRequests() {
         return purchaseRequestRepository.findAll();
@@ -99,6 +104,26 @@ public class ProcurementController {
     public SupplierDashboardDto getSupplierDashboard(Authentication authentication) {
         String email = authentication == null ? "" : authentication.getName();
         return procurementWorkflowService.buildSupplierDashboard(email);
+    }
+
+    @GetMapping("/weekly-plans")
+    @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
+    public List<ProcurementWeeklyPlan> listWeeklyPlans() {
+        return weeklyPlanningService.listProcurementPlans();
+    }
+
+    @GetMapping("/weekly-plans/current")
+    @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
+    public ProcurementWeeklyPlan getCurrentWeeklyPlan(@RequestParam(required = false) String referenceDate,
+                                                      Authentication authentication) {
+        return weeklyPlanningService.getOrGenerateProcurementPlan(parseReferenceDate(referenceDate), authentication == null ? "" : authentication.getName());
+    }
+
+    @PostMapping("/weekly-plans/generate")
+    @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
+    public ProcurementWeeklyPlan generateWeeklyPlan(@RequestParam(required = false) String referenceDate,
+                                                    Authentication authentication) {
+        return weeklyPlanningService.generateProcurementPlan(parseReferenceDate(referenceDate), authentication == null ? "" : authentication.getName());
     }
 
     private List<PurchaseOrder> filterPurchaseOrders(String keyword,
@@ -593,6 +618,17 @@ public class ProcurementController {
             return LocalDate.parse(raw.trim()).atStartOfDay();
         } catch (Exception ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "开始日期格式错误，应为 yyyy-MM-dd");
+        }
+    }
+
+    private LocalDate parseReferenceDate(String raw) {
+        if (isBlank(raw)) {
+            return LocalDate.now();
+        }
+        try {
+            return LocalDate.parse(raw.trim());
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "参考日期格式错误，应为 yyyy-MM-dd");
         }
     }
 

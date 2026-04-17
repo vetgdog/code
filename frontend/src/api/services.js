@@ -26,6 +26,9 @@ export const productionApi = {
   listByUser: (userId) => client.get(`/production/tasks/user/${userId}`),
   listRecords: (params = {}) => client.get('/production/records', { params }),
   listQualityAlerts: () => client.get('/production/quality-alerts'),
+  listWeeklyPlans: () => client.get('/production/weekly-plans'),
+  getCurrentWeeklyPlan: (params = {}) => client.get('/production/weekly-plans/current', { params }),
+  generateWeeklyPlan: (params = {}) => client.post('/production/weekly-plans/generate', null, { params }),
   updateStatus: (taskId, status) => client.post(`/production/tasks/${taskId}/status?status=${encodeURIComponent(status)}`)
 };
 
@@ -41,6 +44,9 @@ export const procurementApi = {
   listSuppliers: () => client.get('/procurement/suppliers'),
   getDashboard: () => client.get('/procurement/dashboard'),
   listRequests: () => client.get('/procurement/requests'),
+  listWeeklyPlans: () => client.get('/procurement/weekly-plans'),
+  getCurrentWeeklyPlan: (params = {}) => client.get('/procurement/weekly-plans/current', { params }),
+  generateWeeklyPlan: (params = {}) => client.post('/procurement/weekly-plans/generate', null, { params }),
   listOrders: (params = {}) => client.get('/procurement/orders', { params }),
   exportOrdersCsv: (params = {}) => client.get('/procurement/orders/export', { params: { ...params, format: 'csv' }, responseType: 'blob' }),
   exportOrdersExcel: (params = {}) => client.get('/procurement/orders/export', { params: { ...params, format: 'xlsx' }, responseType: 'blob' }),

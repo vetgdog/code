@@ -3,9 +3,11 @@ package com.code.controller;
 import com.code.entity.Batch;
 import com.code.entity.ProductionPlan;
 import com.code.entity.ProductionTask;
+import com.code.entity.ProductionWeeklyPlan;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.ProductionTaskRepository;
 import com.code.service.QualityService;
+import com.code.service.WeeklyPlanningService;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +39,9 @@ public class ProductionController {
 
     @Autowired
     private QualityService qualityService;
+
+    @Autowired
+    private WeeklyPlanningService weeklyPlanningService;
 
     @PostMapping("/tasks")
     public ProductionTask createTask(@RequestBody ProductionTask task) {
@@ -79,6 +84,26 @@ public class ProductionController {
         return qualityService.listProductionAlerts(email).stream()
                 .map(this::toQualityAlertView)
                 .collect(Collectors.toList());
+    }
+
+    @GetMapping("/weekly-plans")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    public List<ProductionWeeklyPlan> listWeeklyPlans() {
+        return weeklyPlanningService.listProductionPlans();
+    }
+
+    @GetMapping("/weekly-plans/current")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    public ProductionWeeklyPlan getCurrentWeeklyPlan(@RequestParam(required = false) String referenceDate,
+                                                     Authentication authentication) {
+        return weeklyPlanningService.getOrGenerateProductionPlan(parseReferenceDate(referenceDate), authentication == null ? "" : authentication.getName());
+    }
+
+    @PostMapping("/weekly-plans/generate")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    public ProductionWeeklyPlan generateWeeklyPlan(@RequestParam(required = false) String referenceDate,
+                                                   Authentication authentication) {
+        return weeklyPlanningService.generateProductionPlan(parseReferenceDate(referenceDate), authentication == null ? "" : authentication.getName());
     }
 
     @PostMapping("/tasks/{taskId}/status")
@@ -156,6 +181,17 @@ public class ProductionController {
 
     private boolean contains(String source, String keyword) {
         return normalize(source).contains(keyword);
+    }
+
+    private LocalDate parseReferenceDate(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return LocalDate.now();
+        }
+        try {
+            return LocalDate.parse(raw.trim());
+        } catch (Exception ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "参考日期格式错误，应为 yyyy-MM-dd");
+        }
     }
 
     private String normalize(String value) {
