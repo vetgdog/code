@@ -1,15 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import Dashboard from '../pages/Dashboard.vue';
 import Orders from '../pages/Orders.vue';
+import Products from '../pages/Products.vue';
+import SalesRecords from '../pages/SalesRecords.vue';
 import Production from '../pages/Production.vue';
 import ProductionPlan from '../pages/ProductionPlan.vue';
 import Inventory from '../pages/Inventory.vue';
 import InventoryAlert from '../pages/InventoryAlert.vue';
 import Procurement from '../pages/Procurement.vue';
+import RawMaterials from '../pages/RawMaterials.vue';
 import ProcurementPlan from '../pages/ProcurementPlan.vue';
 import Quality from '../pages/Quality.vue';
 import Customer from '../pages/Customer.vue';
 import AccountAdmin from '../pages/AccountAdmin.vue';
+import PasswordSecurity from '../pages/PasswordSecurity.vue';
 import Login from '../pages/Login.vue';
 import Register from '../pages/Register.vue';
 import { canAccessRouteName, getDefaultRouteNameByRole, normalizeRole } from '../constants/access.js';
@@ -44,6 +48,18 @@ const routes = [
     meta: { title: '订单管理', subtitle: 'Sales orders and plans' }
   },
   {
+    path: '/products',
+    name: 'Products',
+    component: Products,
+    meta: { title: '产品档案', subtitle: 'Product catalog management' }
+  },
+  {
+    path: '/sales-records',
+    name: 'SalesRecords',
+    component: SalesRecords,
+    meta: { title: '销售记录', subtitle: 'Sales history and gantt overview' }
+  },
+  {
     path: '/production',
     name: 'Production',
     component: Production,
@@ -74,6 +90,12 @@ const routes = [
     meta: { title: '采购管理', subtitle: 'Requests and orders' }
   },
   {
+    path: '/raw-materials',
+    name: 'RawMaterials',
+    component: RawMaterials,
+    meta: { title: '原材料档案', subtitle: 'Materials and supplier data' }
+  },
+  {
     path: '/procurement-plan',
     name: 'ProcurementPlan',
     component: ProcurementPlan,
@@ -102,6 +124,12 @@ const routes = [
     name: 'AccountAdmin',
     component: AccountAdmin,
     meta: { title: '账号管理', subtitle: 'Internal staff accounts' }
+  },
+  {
+    path: '/password-security',
+    name: 'PasswordSecurity',
+    component: PasswordSecurity,
+    meta: { title: '账户安全', subtitle: 'Change your password securely' }
   },
   {
     path: '/:pathMatch(.*)*',

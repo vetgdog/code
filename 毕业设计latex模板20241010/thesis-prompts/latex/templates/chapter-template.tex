@@ -1,0 +1,47 @@
+% 通用章节模板
+\section{章节标题}
+
+本章围绕……展开分析与论述。
+
+\subsection{小节标题一}
+
+正文内容。
+
+\subsection{小节标题二}
+
+正文内容。
+
+\subsubsection{子小节标题}
+
+正文内容。
+
+% 图示引用示例
+如图~\ref{fig:system-arch} 所示，系统采用前后端分离架构，通过统一接口实现前后端协同。
+
+\begin{figure}[htbp]
+    \centering
+    % \includegraphics[width=0.8\textwidth]{figures/system-arch.pdf}
+    \caption{系统总体架构图}
+    \label{fig:system-arch}
+\end{figure}
+
+% 表格引用示例
+表~\ref{tab:role-permission} 给出了系统主要角色及其权限分配情况。
+
+\begin{table}[htbp]
+    \centering
+    \caption{系统角色与权限对应关系}
+    \label{tab:role-permission}
+    \begin{tabular}{lll}
+        \hline
+        角色 & 主要职责 & 典型权限 \\
+        \hline
+        顾客 & 提交订单与质量追溯 & 下单、查询个人订单 \\
+        销售管理员 & 审核订单与销售记录管理 & 订单审核、销售记录查看 \\
+        仓库管理员 & 库存与出入库处理 & 发货、入库、库存预警处理 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+本章小结如下：本文从……角度对本章内容进行了分析，为后续章节的详细实现与测试分析奠定了基础。
+

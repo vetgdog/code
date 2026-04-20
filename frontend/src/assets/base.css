@@ -6,16 +6,129 @@
   color-scheme: light;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   font-family: 'Inter', sans-serif;
-  background: radial-gradient(circle at top right, #e7f0ff 0%, #f8fbff 35%, #f5f7fb 100%);
-  color: #0f172a;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(34, 211, 238, 0.18) 0%, transparent 28%),
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.2) 0%, transparent 30%),
+    radial-gradient(circle at bottom right, rgba(14, 165, 233, 0.16) 0%, transparent 24%),
+    linear-gradient(135deg, #020617 0%, #0f172a 34%, #111827 68%, #020617 100%);
+  color: #e2e8f0;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(circle at center, black 48%, transparent 100%);
 }
 
 .material-symbols-outlined {
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   vertical-align: middle;
+}
+
+.panel-surface {
+  background: linear-gradient(145deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.76));
+  border: 1px solid rgba(56, 189, 248, 0.16);
+  box-shadow: 0 20px 50px rgba(2, 6, 23, 0.35), inset 0 1px 0 rgba(125, 211, 252, 0.08);
+  backdrop-filter: blur(18px);
+  border-radius: 28px;
+}
+
+.panel-header {
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(56, 189, 248, 0.14);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.55), rgba(15, 23, 42, 0.1));
+}
+
+.neo-input {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  background: rgba(2, 6, 23, 0.48);
+  color: #e2e8f0;
+  padding: 0.85rem 1rem;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+}
+
+.neo-input::placeholder {
+  color: rgba(148, 163, 184, 0.78);
+}
+
+.neo-input:focus {
+  border-color: rgba(34, 211, 238, 0.75);
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.12), 0 0 24px rgba(14, 165, 233, 0.15);
+  transform: translateY(-1px);
+}
+
+.neo-button-primary,
+.neo-button-secondary {
+  border-radius: 16px;
+  padding: 0.72rem 1.1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.neo-button-primary {
+  color: white;
+  background: linear-gradient(135deg, #0ea5e9, #2563eb 58%, #7c3aed 100%);
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.35);
+}
+
+.neo-button-primary:hover,
+.neo-button-secondary:hover {
+  transform: translateY(-1px);
+}
+
+.neo-button-primary:disabled,
+.neo-button-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.neo-button-secondary {
+  color: #cbd5e1;
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.neo-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.neo-table thead th {
+  padding: 0 0 0.9rem 0;
+  text-align: left;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(186, 230, 253, 0.78);
+}
+
+.neo-table tbody td {
+  padding: 0.95rem 0;
+  border-top: 1px solid rgba(56, 189, 248, 0.12);
+  color: #e2e8f0;
+}
+
+.neo-table tbody tr:hover {
+  background: rgba(15, 23, 42, 0.28);
 }
 

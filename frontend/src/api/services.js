@@ -5,6 +5,10 @@ export const authApi = {
   register: (payload, role) => client.post(`/auth/register?role=${encodeURIComponent(role || '')}`, payload)
 };
 
+export const profileApi = {
+  changePassword: (payload) => client.post('/profile/change-password', payload)
+};
+
 export const orderApi = {
   list: () => client.get('/orders'),
   listSalesRecords: (params = {}) => client.get('/orders/sales-records', { params }),

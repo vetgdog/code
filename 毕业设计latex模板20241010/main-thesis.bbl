@@ -1,0 +1,113 @@
+\begin{thebibliography}{10}
+\providecommand{\bibauthor}[1]{#1}
+\providecommand{\bibeditor}[1]{#1}
+\providecommand{\bibtranslator}[1]{#1}
+\providecommand{\bibtitle}[1]{#1}
+\providecommand{\bibbooktitle}[1]{#1}
+\providecommand{\bibjournal}[1]{#1}
+\providecommand{\bibmark}[1]{#1}
+\providecommand{\bibcountry}[1]{#1}
+\providecommand{\bibpatentid}[1]{#1}
+\providecommand{\bibedition}[1]{#1}
+\providecommand{\biborganization}[1]{#1}
+\providecommand{\bibaddress}[1]{#1}
+\providecommand{\bibpublisher}[1]{#1}
+\providecommand{\bibinstitution}[1]{#1}
+\providecommand{\bibschool}[1]{#1}
+\providecommand{\bibvolume}[1]{#1}
+\providecommand{\bibnumber}[1]{#1}
+\providecommand{\bibversion}[1]{#1}
+\providecommand{\bibpages}[1]{#1}
+\providecommand{\bibmodifydate}[1]{#1}
+\providecommand{\bibcitedate}[1]{#1}
+\providecommand{\bibyear}[1]{#1}
+\providecommand{\bibdate}[1]{#1}
+\providecommand{\biburl}[1]{\newline\url{#1}}
+
+\bibitem{christopher2016}
+\bibauthor{Christopher M}\@. \bibbooktitle{Logistics \& Supply Chain
+  Management}\bibmark{[M]}\@. \bibedition{\mbox{5th~ed}}\@.
+  \bibaddress{Harlow}\thinspace{}\textnormal{: }\bibpublisher{Pearson}\@,
+  \bibyear{2016}\@.
+
+\bibitem{lee2004triplea}
+\bibauthor{Lee H~L}\@. \bibtitle{The Triple-A Supply Chain}\bibmark{[J]}\@.
+  \bibjournal{Harvard Business Review}\@, \bibyear{2004}\@,
+  \bibvolume{82}\bibnumber{(10)}\thinspace{}\textnormal{:
+  }\bibpages{102\thinspace{}\textnormal{--}\thinspace{}112}\@.
+
+\bibitem{gunasekaran2004framework}
+\bibauthor{Gunasekaran A\@, Patel C\@, Tirtiroglu E}\@. \bibtitle{A framework
+  for supply chain performance measurement}\bibmark{[J]}\@.
+  \bibjournal{International Journal of Production Economics}\@,
+  \bibyear{2004}\@, \bibvolume{87}\bibnumber{(3)}\thinspace{}\textnormal{:
+  }\bibpages{333\thinspace{}\textnormal{--}\thinspace{}347}\@.
+
+\bibitem{monk2012erp}
+\bibauthor{Monk E\@, Wagner B~J}\@. \bibbooktitle{Concepts in Enterprise
+  Resource Planning}\bibmark{[M]}\@. \bibedition{\mbox{4th~ed}}\@.
+  \bibaddress{Boston}\thinspace{}\textnormal{: }\bibpublisher{Cengage
+  Learning}\@, \bibyear{2012}\@.
+
+\bibitem{gbt22005-2009}
+\bibauthor{{中华人民共和国国家质量监督检验检疫总局}\@,
+  {中国国家标准化管理委员会}}\@. \bibtitle{GB/T 22005-2009
+  饲料和食品链的可追溯性体系设计与实施通用原则和基本要求}\bibmark{[S]}\@.
+  \bibyear{2009}\@.
+
+\bibitem{fielding2000architectural}
+\bibauthor{Fielding R~T}\@. \bibtitle{Architectural Styles and the Design of
+  Network-Based Software Architectures}\bibmark{[D]}\@.
+  \bibaddress{Irvine}\thinspace{}\textnormal{: }\bibschool{University of
+  California, Irvine}\@, \bibyear{2000}\@.
+
+\bibitem{springbootdocs}
+\bibauthor{{VMware, Inc.}}\@. \bibtitle{Spring Boot Reference
+  Documentation}\bibmark{[EB/OL]}\@. \bibyear{2024}
+  \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://docs.spring.io/spring-boot/docs/current/reference/htmlsingle/}\@.
+
+\bibitem{springsecuritydocs}
+\bibauthor{{VMware, Inc.}}\@. \bibtitle{Spring Security
+  Reference}\bibmark{[EB/OL]}\@. \bibyear{2024} \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://docs.spring.io/spring-security/reference/}\@.
+
+\bibitem{rfc7519}
+\bibauthor{Jones M\@, Bradley J\@, Sakimura N}\@. \bibtitle{RFC 7519: JSON Web
+  Token (JWT)}\bibmark{[EB/OL]}\@. \bibpublisher{IETF}\@, \bibyear{2015}
+  \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://www.rfc-editor.org/rfc/rfc7519}\@.
+
+\bibitem{vuedocs}
+\bibauthor{{Vue.js Team}}\@. \bibtitle{Vue.js Guide}\bibmark{[EB/OL]}\@.
+  \bibyear{2024} \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://vuejs.org/guide/introduction.html}\@.
+
+\bibitem{vitedocs}
+\bibauthor{{Vite Team}}\@. \bibtitle{Vite Guide}\bibmark{[EB/OL]}\@.
+  \bibyear{2024} \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://vite.dev/guide/}\@.
+
+\bibitem{rfc6455}
+\bibauthor{Fette I\@, Melnikov A}\@. \bibtitle{RFC 6455: The WebSocket
+  Protocol}\bibmark{[EB/OL]}\@. \bibpublisher{IETF}\@, \bibyear{2011}
+  \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://www.rfc-editor.org/rfc/rfc6455}\@.
+
+\bibitem{stomp12}
+\bibauthor{{STOMP Protocol Community}}\@. \bibtitle{STOMP Specification Version
+  1.2}\bibmark{[EB/OL]}\@. \bibyear{2012} \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://stomp.github.io/stomp-specification-1.2.html}\@.
+
+\bibitem{mysql2024}
+\bibauthor{{Oracle Corporation}}\@. \bibtitle{MySQL 8.0 Reference
+  Manual}\bibmark{[EB/OL]}\@. \bibyear{2024} \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://dev.mysql.com/doc/refman/8.0/en/}\@.
+
+\bibitem{springdatajpa2024}
+\bibauthor{{VMware, Inc.}}\@. \bibtitle{Spring Data JPA Reference
+  Documentation}\bibmark{[EB/OL]}\@. \bibyear{2024}
+  \bibcitedate{[2026-04-20]}\@.
+  \newline\url{https://docs.spring.io/spring-data/jpa/reference/}\@.
+
+\end{thebibliography}

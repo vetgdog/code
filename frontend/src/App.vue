@@ -3,7 +3,7 @@
     <div v-if="showShell" class="flex">
       <SidebarNav :items="visibleNavItems" :user-display-name="auth.state.username || 'SCM Controller'" :role-display-name="roleLabel" />
       <div class="flex-1 min-h-screen md:ml-64">
-        <TopBar :title="pageTitle" :subtitle="pageSubtitle || roleLabel" :realtime-connected="realtime.state.connected" @logout="handleLogout" />
+        <TopBar :title="pageTitle" :subtitle="pageSubtitle || roleLabel" :realtime-connected="realtime.state.connected" @logout="handleLogout" @open-security="openSecurityPage" />
         <main class="p-6">
           <RouterView />
         </main>
@@ -43,14 +43,18 @@ const navItems = computed(() => {
     { label: '总览', icon: 'dashboard', to: '/', routeName: 'Dashboard' },
     { label: '账号管理', icon: 'manage_accounts', to: '/account-admin', routeName: 'AccountAdmin' },
     { label: '订单管理', icon: 'assignment', to: '/orders', routeName: 'Orders' },
+    { label: '产品档案', icon: 'deployed_code', to: '/products', routeName: 'Products' },
+    { label: '销售记录', icon: 'monitoring', to: '/sales-records', routeName: 'SalesRecords' },
     { label: '生产任务', icon: 'factory', to: '/production', routeName: 'Production' },
     { label: '生产计划', icon: 'calendar_month', to: '/production-plan', routeName: 'ProductionPlan' },
     { label: '库存管理', icon: 'inventory_2', to: '/inventory', routeName: 'Inventory' },
     { label: '库存预警', icon: 'warning', to: '/inventory-alerts', routeName: 'InventoryAlert' },
     procurementNavItem,
+    { label: '原材料档案', icon: 'category', to: '/raw-materials', routeName: 'RawMaterials' },
     { label: '采购计划', icon: 'event_note', to: '/procurement-plan', routeName: 'ProcurementPlan' },
     { label: '质量追溯', icon: 'verified', to: '/quality', routeName: 'Quality' },
-    { label: '客户门户', icon: 'support_agent', to: '/customer', routeName: 'Customer' }
+    { label: '客户门户', icon: 'support_agent', to: '/customer', routeName: 'Customer' },
+    { label: '账户安全', icon: 'shield_lock', to: '/password-security', routeName: 'PasswordSecurity' }
   ];
 });
 
@@ -61,6 +65,10 @@ const handleLogout = () => {
   realtime.clearEvents();
   auth.logout();
   router.push({ name: 'Login' });
+};
+
+const openSecurityPage = () => {
+  router.push({ name: 'PasswordSecurity' });
 };
 
 watch(
