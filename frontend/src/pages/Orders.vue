@@ -135,13 +135,12 @@
                 >
                   可发货
                 </button>
-                <button
+                <span
                   v-if="canProductionUpdate && order.status === '生产中'"
-                  class="text-xs text-orange-600 mr-3"
-                  @click="handleProductionComplete(order.id)"
+                  class="text-xs text-on-surface-variant mr-3"
                 >
-                  生产完成通知仓库
-                </button>
+                  请在生产任务页完成领料与生产流程
+                </span>
                 <button
                   v-if="canSalesReview && order.status === '已发货'"
                   class="text-xs text-emerald-700 mr-3"

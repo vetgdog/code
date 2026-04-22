@@ -1,11 +1,13 @@
 package com.code.controller;
 
 import com.code.entity.Batch;
+import com.code.entity.ProductionMaterialRequest;
 import com.code.entity.ProductionPlan;
 import com.code.entity.ProductionTask;
 import com.code.entity.ProductionWeeklyPlan;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.ProductionTaskRepository;
+import com.code.service.ProductionMaterialRequestService;
 import com.code.service.QualityService;
 import com.code.service.WeeklyPlanningService;
 import com.code.websocket.NotificationMessage;
@@ -43,6 +45,9 @@ public class ProductionController {
     @Autowired
     private WeeklyPlanningService weeklyPlanningService;
 
+    @Autowired
+    private ProductionMaterialRequestService productionMaterialRequestService;
+
     @PostMapping("/tasks")
     public ProductionTask createTask(@RequestBody ProductionTask task) {
         ProductionTask saved = productionTaskRepository.save(task);
@@ -61,6 +66,47 @@ public class ProductionController {
                                                   @RequestParam(required = false) String keyword,
                                                   Authentication authentication) {
         return queryRecords(startDate, endDate, keyword, authentication, false);
+    }
+
+    @GetMapping("/material-requests")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','WAREHOUSE_MANAGER','PROCUREMENT_MANAGER','ADMIN')")
+    public List<ProductionMaterialRequest> listMaterialRequests(@RequestParam(required = false) Long orderId,
+                                                                @RequestParam(required = false) String status,
+                                                                Authentication authentication) {
+        String role = authentication == null || authentication.getAuthorities() == null
+                ? ""
+                : authentication.getAuthorities().stream().findFirst().map(authority -> authority == null ? "" : authority.getAuthority()).orElse("");
+        String email = authentication == null ? "" : authentication.getName();
+        return productionMaterialRequestService.listRequests(role, email, orderId, status);
+    }
+
+    @PostMapping("/material-requests")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    public ProductionMaterialRequest createMaterialRequest(@RequestBody MaterialRequestCommand request,
+                                                           Authentication authentication) {
+        List<ProductionMaterialRequestService.MaterialItemCommand> items = request == null || request.getItems() == null
+                ? List.of()
+                : request.getItems().stream()
+                .map(item -> new ProductionMaterialRequestService.MaterialItemCommand(item.getMaterialProductId(), item.getRequiredQuantity()))
+                .collect(Collectors.toList());
+        return productionMaterialRequestService.createRequest(
+                request == null ? null : request.getOrderId(),
+                items,
+                request == null ? "" : request.getNote(),
+                authentication == null ? "" : authentication.getName()
+        );
+    }
+
+    @PostMapping("/material-requests/{requestId}/warehouse-review")
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    public ProductionMaterialRequest warehouseReviewMaterialRequest(@PathVariable Long requestId,
+                                                                    @RequestBody(required = false) WarehouseReviewCommand request,
+                                                                    Authentication authentication) {
+        return productionMaterialRequestService.warehouseReview(
+                requestId,
+                request == null ? "" : request.getNote(),
+                authentication == null ? "" : authentication.getName()
+        );
     }
 
     @GetMapping("/records/overview")
@@ -428,6 +474,69 @@ public class ProductionController {
 
         public LocalDateTime getInspectedAt() {
             return inspectedAt;
+        }
+    }
+
+    public static class MaterialRequestCommand {
+        private Long orderId;
+        private String note;
+        private List<MaterialItemCommand> items;
+
+        public Long getOrderId() {
+            return orderId;
+        }
+
+        public void setOrderId(Long orderId) {
+            this.orderId = orderId;
+        }
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
+        }
+
+        public List<MaterialItemCommand> getItems() {
+            return items;
+        }
+
+        public void setItems(List<MaterialItemCommand> items) {
+            this.items = items;
+        }
+    }
+
+    public static class MaterialItemCommand {
+        private Long materialProductId;
+        private Double requiredQuantity;
+
+        public Long getMaterialProductId() {
+            return materialProductId;
+        }
+
+        public void setMaterialProductId(Long materialProductId) {
+            this.materialProductId = materialProductId;
+        }
+
+        public Double getRequiredQuantity() {
+            return requiredQuantity;
+        }
+
+        public void setRequiredQuantity(Double requiredQuantity) {
+            this.requiredQuantity = requiredQuantity;
+        }
+    }
+
+    public static class WarehouseReviewCommand {
+        private String note;
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
         }
     }
 }

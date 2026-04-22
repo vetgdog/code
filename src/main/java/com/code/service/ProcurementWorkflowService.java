@@ -6,15 +6,18 @@ import com.code.entity.InventoryItem;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseOrderItem;
+import com.code.entity.PurchaseRequest;
 import com.code.entity.StockTransaction;
 import com.code.entity.User;
 import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseOrderRepository;
+import com.code.repository.PurchaseRequestRepository;
 import com.code.repository.StockTransactionRepository;
 import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
+import com.code.support.WarehouseDefaults;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -51,6 +54,9 @@ public class ProcurementWorkflowService {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private PurchaseRequestRepository purchaseRequestRepository;
 
     @Autowired
     private UserRepository userRepository;
@@ -129,6 +135,7 @@ public class ProcurementWorkflowService {
         purchaseOrder.setOrderDate(purchaseOrder.getOrderDate() == null ? LocalDateTime.now() : purchaseOrder.getOrderDate());
         purchaseOrder.setCreatedAt(purchaseOrder.getCreatedAt() == null ? LocalDateTime.now() : purchaseOrder.getCreatedAt());
         PurchaseOrder saved = purchaseOrderRepository.save(purchaseOrder);
+        markSourceRequestsConverted(saved);
 
         notificationService.broadcast(
                 resolveSupplierTopic(supplier),
@@ -349,6 +356,43 @@ public class ProcurementWorkflowService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "采购单不存在: " + purchaseOrderId));
     }
 
+    private void markSourceRequestsConverted(PurchaseOrder order) {
+        if (order == null || order.getSourceRequestIds() == null || order.getSourceRequestIds().isEmpty()) {
+            return;
+        }
+        List<Long> requestIds = order.getSourceRequestIds().stream()
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .collect(Collectors.toList());
+        if (requestIds.isEmpty()) {
+            return;
+        }
+        List<PurchaseRequest> requests = purchaseRequestRepository.findAllById(requestIds);
+        if (requests.size() != requestIds.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "存在无效的采购申请来源，请刷新后重试");
+        }
+        for (PurchaseRequest request : requests) {
+            if (!"OPEN".equalsIgnoreCase(safe(request.getStatus()))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购申请已被处理: " + request.getRequestNo());
+            }
+            request.setStatus("CONVERTED");
+            request.setSupplier(order.getSupplier());
+            request.setNotes(appendConversionNote(request.getNotes(), order.getPoNo()));
+        }
+        purchaseRequestRepository.saveAll(requests);
+    }
+
+    private String appendConversionNote(String existingNote, String poNo) {
+        String conversionNote = "已生成采购单：" + safe(poNo);
+        if (safe(existingNote).isEmpty()) {
+            return conversionNote;
+        }
+        if (safe(existingNote).contains(safe(poNo))) {
+            return existingNote;
+        }
+        return existingNote.trim() + "；" + conversionNote;
+    }
+
     private String generatePurchaseOrderNo() {
         for (int attempt = 0; attempt < 10; attempt++) {
             String suffix = UUID.randomUUID().toString().substring(0, 4).toUpperCase(Locale.ROOT);
@@ -515,9 +559,12 @@ public class ProcurementWorkflowService {
         if (existing != null) {
             return existing;
         }
-        return warehouseRepository.findAll().stream()
-                .sorted(Comparator.comparing(Warehouse::getId, Comparator.nullsLast(Comparator.naturalOrder())))
-                .findFirst()
+        Product product = productRepository.findById(productId).orElse(null);
+        String defaultWarehouseCode = WarehouseDefaults.defaultWarehouseCodeFor(product);
+        return warehouseRepository.findByCodeIgnoreCase(defaultWarehouseCode)
+                .or(() -> warehouseRepository.findAll().stream()
+                        .sorted(Comparator.comparing(Warehouse::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                        .findFirst())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "未配置仓库，无法完成采购入库"));
     }
 

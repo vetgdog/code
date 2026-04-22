@@ -17,6 +17,7 @@ import com.code.repository.SalesOrderRepository;
 import com.code.repository.StockTransactionRepository;
 import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
+import com.code.support.WarehouseDefaults;
 import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +70,9 @@ public class OrderWorkflowService {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private ProductionMaterialRequestService productionMaterialRequestService;
 
     @Transactional
     public SalesOrder routeToWarehouseCheck(Long orderId, String operator) {
@@ -141,6 +145,19 @@ public class OrderWorkflowService {
                             note
                     )
             );
+            notificationService.broadcast(
+                    "/topic/orders/warehouse",
+                    buildReviewMessage(
+                            "ORDER_PRODUCTION_REQUIRED",
+                            order,
+                            shortages,
+                            createdPlans,
+                            operator,
+                            note,
+                            "已将生产计划发送给生产管理员。",
+                            "订单 " + order.getOrderNo() + " 缺货，生产计划 " + summarizePlanNos(createdPlans) + " 已下发。"
+                    )
+            );
         }
 
         SalesOrder savedOrder = salesOrderRepository.save(order);
@@ -156,6 +173,8 @@ public class OrderWorkflowService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许生产完工回传: " + order.getStatus());
         }
 
+        productionMaterialRequestService.requireReadyRequestForOrder(orderId);
+
         List<ProductionPlan> plans = productionPlanRepository.findByPlanNoStartingWith("PLAN-" + order.getOrderNo() + "-");
         User productionManager = resolveUserByEmail(operator);
         for (ProductionPlan plan : plans) {
@@ -170,6 +189,7 @@ public class OrderWorkflowService {
         }
 
         prepareCompletedPlanBatchesForQuality(order, plans);
+        productionMaterialRequestService.markProductionCompleted(orderId);
         order.setStatus(STATUS_PENDING_QUALITY);
         SalesOrder saved = salesOrderRepository.save(order);
         NotificationMessage completionMessage = buildReviewMessage(
@@ -208,6 +228,7 @@ public class OrderWorkflowService {
         reserveInventoryForOrder(order);
         order.setStatus(STATUS_ACCEPTED);
         SalesOrder saved = salesOrderRepository.save(order);
+        productionMaterialRequestService.markWarehoused(orderId);
 
         notificationService.broadcast(
                 "/topic/orders/sales",
@@ -509,9 +530,12 @@ public class OrderWorkflowService {
         if (existing != null) {
             return existing;
         }
-        return warehouseRepository.findAll().stream()
-                .sorted(Comparator.comparing(Warehouse::getId, Comparator.nullsLast(Comparator.naturalOrder())))
-                .findFirst()
+        Product product = productRepository.findById(productId).orElse(null);
+        String defaultWarehouseCode = WarehouseDefaults.defaultWarehouseCodeFor(product);
+        return warehouseRepository.findByCodeIgnoreCase(defaultWarehouseCode)
+                .or(() -> warehouseRepository.findAll().stream()
+                        .sorted(Comparator.comparing(Warehouse::getId, Comparator.nullsLast(Comparator.naturalOrder())))
+                        .findFirst())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "未配置仓库，无法完成库存入库"));
     }
 

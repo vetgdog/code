@@ -3,7 +3,7 @@
     <section class="panel-surface p-6">
       <div class="max-w-2xl">
         <h3 class="text-lg font-bold text-white tracking-tight">账户安全 / 修改密码</h3>
-        <p class="mt-2 text-sm text-cyan-100/80">为保证系统安全，修改密码后将自动退出当前登录，请使用新密码重新登录。</p>
+        <p class="mt-2 text-sm text-slate-300">为保证系统安全，修改密码后将自动退出当前登录，请使用新密码重新登录。</p>
       </div>
       <form class="mt-6 max-w-2xl grid grid-cols-1 gap-4" @submit.prevent="submitChangePassword">
         <input v-model="form.currentPassword" type="password" placeholder="请输入当前密码" class="neo-input" required />
@@ -16,10 +16,10 @@
       </form>
       <div v-if="message" class="mt-4 text-sm text-emerald-300">{{ message }}</div>
       <div v-if="error" class="mt-4 text-sm text-rose-300">{{ error }}</div>
-      <ul class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-cyan-100/80">
-        <li class="rounded-2xl border border-cyan-400/20 bg-slate-950/40 px-4 py-3">建议定期修改密码，避免长期使用默认密码。</li>
-        <li class="rounded-2xl border border-cyan-400/20 bg-slate-950/40 px-4 py-3">密码建议包含数字与字母，长度至少 6 位。</li>
-        <li class="rounded-2xl border border-cyan-400/20 bg-slate-950/40 px-4 py-3">修改成功后系统会自动要求重新登录。</li>
+      <ul class="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs text-slate-300">
+        <li class="rounded-2xl border border-slate-500/20 bg-slate-950/40 px-4 py-3">建议定期修改密码，避免长期使用默认密码。</li>
+        <li class="rounded-2xl border border-slate-500/20 bg-slate-950/40 px-4 py-3">密码建议包含数字与字母，长度至少 6 位。</li>
+        <li class="rounded-2xl border border-slate-500/20 bg-slate-950/40 px-4 py-3">修改成功后系统会自动要求重新登录。</li>
       </ul>
     </section>
   </div>

@@ -29,6 +29,9 @@ export const orderApi = {
 export const productionApi = {
   createTask: (payload) => client.post('/production/tasks', payload),
   listByUser: (userId) => client.get(`/production/tasks/user/${userId}`),
+  listMaterialRequests: (params = {}) => client.get('/production/material-requests', { params }),
+  createMaterialRequest: (payload) => client.post('/production/material-requests', payload),
+  warehouseReviewMaterialRequest: (requestId, payload = {}) => client.post(`/production/material-requests/${requestId}/warehouse-review`, payload),
   listRecords: (params = {}) => client.get('/production/records', { params }),
   listRecordOverview: (params = {}) => client.get('/production/records/overview', { params }),
   listQualityAlerts: () => client.get('/production/quality-alerts'),

@@ -64,7 +64,7 @@ public class ProcurementController {
     @GetMapping("/requests")
     @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
     public List<PurchaseRequest> listRequests() {
-        return purchaseRequestRepository.findAllByOrderByRequestDateDesc();
+        return purchaseRequestRepository.findByStatusOrderByRequestDateDesc("OPEN");
     }
 
     @GetMapping("/suppliers")

@@ -70,14 +70,25 @@ const ROLE_CONFIG = {
   },
   ROLE_WAREHOUSE_MANAGER: {
     defaultRouteName: 'Inventory',
-    routeNames: ['Dashboard', 'Inventory', 'InventoryAlert', 'Orders', 'Procurement', 'RawMaterials', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'inventory:view', 'inventory:alerts', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check', 'procurement:view']
+    routeNames: ['Dashboard', 'Inventory', 'InventoryAlert', 'Orders', 'RawMaterials', 'PasswordSecurity'],
+    permissions: ['dashboard:view', 'inventory:view', 'inventory:alerts', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check']
   },
   ROLE_QUALITY_INSPECTOR: {
     defaultRouteName: 'Quality',
     routeNames: ['Dashboard', 'Quality', 'PasswordSecurity'],
     permissions: ['dashboard:view', 'quality:view']
   }
+};
+
+const DASHBOARD_META = {
+  ROLE_ADMIN: { title: '系统总览', subtitle: 'System command overview' },
+  ROLE_SALES_MANAGER: { title: '销售总览', subtitle: 'Sales workflow overview' },
+  ROLE_PROCUREMENT_MANAGER: { title: '采购总览', subtitle: 'Procurement workflow overview' },
+  ROLE_PRODUCTION_MANAGER: { title: '生产总览', subtitle: 'Production workflow overview' },
+  ROLE_WAREHOUSE_MANAGER: { title: '仓储总览', subtitle: 'Warehouse workflow overview' },
+  ROLE_QUALITY_INSPECTOR: { title: '质检总览', subtitle: 'Quality workflow overview' },
+  ROLE_CUSTOMER: { title: '客户总览', subtitle: 'Customer workspace' },
+  ROLE_SUPPLIER: { title: '供应总览', subtitle: 'Supplier workspace' }
 };
 
 export const normalizeRole = (role) => {
@@ -109,6 +120,11 @@ export const getDefaultRouteNameByRole = (role) => getRoleConfig(role).defaultRo
 export const canAccessRouteName = (role, routeName) => getRoleConfig(role).routeNames.includes(routeName);
 
 export const hasRolePermission = (role, permission) => getRoleConfig(role).permissions.includes(permission);
+
+export const getDashboardMetaByRole = (role) => {
+  const normalizedRole = normalizeRole(role);
+  return DASHBOARD_META[normalizedRole] || DASHBOARD_META.ROLE_ADMIN;
+};
 
 export const getRoleLabel = (role) => {
   const normalizedRole = normalizeRole(role);

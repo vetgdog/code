@@ -4,6 +4,7 @@ import com.code.dto.ProcurementExportRowDto;
 import com.code.dto.SupplierDashboardDto;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
+import com.code.entity.PurchaseRequest;
 import com.code.entity.Role;
 import com.code.entity.User;
 import com.code.repository.ProductRepository;
@@ -83,6 +84,22 @@ class ProcurementControllerTest {
         assertEquals(saved.getSku(), saved.getSku().toUpperCase());
         assertEquals("冷轧钢板", saved.getName());
         assertEquals(100.0, saved.getSafetyStock());
+    }
+
+    @Test
+    void listRequestsOnlyReturnsOpenRequests() {
+        PurchaseRequest openRequest = new PurchaseRequest();
+        openRequest.setId(1L);
+        openRequest.setRequestNo("PR-OPEN-001");
+        openRequest.setStatus("OPEN");
+
+        when(purchaseRequestRepository.findByStatusOrderByRequestDateDesc("OPEN")).thenReturn(List.of(openRequest));
+
+        List<PurchaseRequest> result = procurementController.listRequests();
+
+        assertEquals(1, result.size());
+        assertEquals("PR-OPEN-001", result.get(0).getRequestNo());
+        verify(purchaseRequestRepository).findByStatusOrderByRequestDateDesc("OPEN");
     }
 
     @Test

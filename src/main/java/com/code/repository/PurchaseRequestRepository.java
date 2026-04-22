@@ -7,5 +7,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface PurchaseRequestRepository extends JpaRepository<PurchaseRequest, Long> {
 	java.util.List<PurchaseRequest> findAllByOrderByRequestDateDesc();
+	java.util.List<PurchaseRequest> findByStatusOrderByRequestDateDesc(String status);
 }
 

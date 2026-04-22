@@ -34,6 +34,9 @@ public class PurchaseOrder {
     private LocalDateTime receivedAt;
     private LocalDateTime createdAt = LocalDateTime.now();
 
+    @Transient
+    private List<Long> sourceRequestIds;
+
     @OneToMany(mappedBy = "purchaseOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PurchaseOrderItem> items;
 }

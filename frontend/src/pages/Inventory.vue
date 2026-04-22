@@ -3,6 +3,47 @@
     <section v-if="canReceiveInventory" class="bg-white rounded-lg border border-outline-variant/10">
       <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
         <div>
+          <h3 class="text-sm font-bold tracking-tight">待审核生产领料申请</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">生产管理员提交原材料需求后，仓库管理员在此审核；若库存不足，系统会自动通知采购管理员补料。</p>
+        </div>
+        <button class="text-xs text-primary font-semibold" @click="loadProductionMaterialRequests">刷新</button>
+      </div>
+      <div class="p-5">
+        <div v-if="productionMaterialRequests.length === 0" class="text-sm text-on-surface-variant">暂无待处理的生产领料申请。</div>
+        <table v-else class="w-full text-sm">
+          <thead class="text-xs text-on-surface-variant">
+            <tr class="text-left">
+              <th class="pb-2">申请单号</th>
+              <th class="pb-2">订单号</th>
+              <th class="pb-2">成品</th>
+              <th class="pb-2">原材料明细</th>
+              <th class="pb-2">状态</th>
+              <th class="pb-2">申请人</th>
+              <th class="pb-2">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="request in productionMaterialRequests" :key="request.id" class="border-t border-outline-variant/20">
+              <td class="py-3 font-semibold">{{ request.requestNo }}</td>
+              <td class="py-3">{{ request.salesOrder?.orderNo || '-' }}</td>
+              <td class="py-3">{{ request.finishedProduct?.name || '-' }}</td>
+              <td class="py-3">{{ summarizeMaterialRequestItems(request.items) }}</td>
+              <td class="py-3">{{ request.status }}</td>
+              <td class="py-3">{{ request.createdByName || '-' }}</td>
+              <td class="py-3">
+                <button class="text-xs text-primary font-semibold" @click="reviewProductionMaterialRequest(request.id)">
+                  {{ request.status === '待采购补料' ? '到料后再次审核并出库' : '审核并出库原料' }}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section v-if="canReceiveInventory" class="bg-white rounded-lg border border-outline-variant/10">
+      <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
+        <div>
           <h3 class="text-sm font-bold tracking-tight">待确认生产入库</h3>
           <p class="mt-1 text-xs text-on-surface-variant">生产管理员完工后，仓库管理员点击确认即可自动完成入库并释放后续发货流程。</p>
         </div>
@@ -232,7 +273,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { inventoryApi, orderApi, procurementApi, productApi } from '../api/services.js';
+import { inventoryApi, orderApi, procurementApi, productApi, productionApi } from '../api/services.js';
 import { useAuthStore } from '../store/auth.js';
 import { useRealtimeStore } from '../store/realtime.js';
 
@@ -282,6 +323,7 @@ const loading = ref(false);
 const transactionError = ref('');
 const pendingProductionOrders = ref([]);
 const pendingPurchaseOrders = ref([]);
+const productionMaterialRequests = ref([]);
 
 const handleStock = async (type) => {
   message.value = '';
@@ -386,6 +428,19 @@ const loadPendingPurchaseOrders = async () => {
   }
 };
 
+const loadProductionMaterialRequests = async () => {
+  if (!canReceiveInventory.value) {
+    productionMaterialRequests.value = [];
+    return;
+  }
+  try {
+    const response = await productionApi.listMaterialRequests();
+    productionMaterialRequests.value = (response.data || []).filter((request) => ['待仓库备料', '待采购补料'].includes(request.status));
+  } catch (err) {
+    productionMaterialRequests.value = [];
+  }
+};
+
 const confirmProductionStockIn = async (orderId) => {
   message.value = '';
   error.value = '';
@@ -404,9 +459,24 @@ const confirmPurchaseReceipt = async (orderId) => {
   try {
     await procurementApi.warehouseReceive(orderId, {});
     message.value = `采购单 ${orderId} 已确认收货并自动入库。`;
-    await Promise.all([loadPendingPurchaseOrders(), loadItems(), loadTransactions()]);
+    await Promise.all([loadPendingPurchaseOrders(), loadItems(), loadTransactions(), loadProductionMaterialRequests()]);
   } catch (err) {
     error.value = err?.response?.data?.message || err?.response?.data || '采购入库确认失败。';
+  }
+};
+
+const reviewProductionMaterialRequest = async (requestId) => {
+  message.value = '';
+  error.value = '';
+  try {
+    const response = await productionApi.warehouseReviewMaterialRequest(requestId, {});
+    const status = response?.data?.status || '';
+    message.value = status === '待采购补料'
+      ? `领料申请 ${response?.data?.requestNo || requestId} 原材料不足，已通知采购管理员补料。`
+      : `领料申请 ${response?.data?.requestNo || requestId} 已完成原材料出库，并已通知生产管理员。`;
+    await Promise.all([loadProductionMaterialRequests(), loadItems(), loadTransactions(), loadPendingPurchaseOrders()]);
+  } catch (err) {
+    error.value = err?.response?.data?.message || err?.response?.data || '生产领料审核失败。';
   }
 };
 
@@ -443,23 +513,25 @@ const formatRelatedType = (value) => relatedTypeOptions.find((item) => item.valu
 const formatProducts = (items) => (items || []).map((item) => item.product?.name || item.product?.sku || '-').join('，') || '-';
 const formatItemsQuantity = (items) => formatQuantity((items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0));
 const summarizePurchaseItems = (items) => (items || []).map((item) => `${item.product?.name || item.product?.sku || '-'} x ${formatQuantity(item.quantity)}`).join('；') || '-';
+const summarizeMaterialRequestItems = (items) => (items || []).map((item) => `${item.materialProduct?.name || '-'} x ${formatQuantity(item.requiredQuantity)}`).join('；') || '-';
 
 watch(
   () => realtime.state.lastMessage,
   (message) => {
-    if (message?.topic?.startsWith('/topic/orders') || message?.topic?.startsWith('/topic/procurement')) {
+    if (message?.topic?.startsWith('/topic/orders') || message?.topic?.startsWith('/topic/procurement') || message?.topic?.startsWith('/topic/production')) {
       loadItems();
       loadTransactions();
       loadWarehouses();
       loadPendingProductionOrders();
       loadPendingPurchaseOrders();
+      loadProductionMaterialRequests();
     }
   }
 );
 
 onMounted(async () => {
   await Promise.all([loadProducts(), loadWarehouses()]);
-  await Promise.all([loadItems(), loadTransactions(), loadPendingProductionOrders(), loadPendingPurchaseOrders()]);
+  await Promise.all([loadItems(), loadTransactions(), loadPendingProductionOrders(), loadPendingPurchaseOrders(), loadProductionMaterialRequests()]);
 });
 </script>
 

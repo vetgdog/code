@@ -17,6 +17,8 @@ import com.code.repository.SalesOrderRepository;
 import com.code.repository.StockTransactionRepository;
 import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
+import com.code.support.WarehouseDefaults;
+import com.code.websocket.NotificationMessage;
 import com.code.websocket.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -29,9 +31,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -73,6 +76,9 @@ class OrderWorkflowServiceTest {
     @Mock
     private NotificationService notificationService;
 
+    @Mock
+    private ProductionMaterialRequestService productionMaterialRequestService;
+
     @Test
     void warehouseReviewWhenStockEnoughReservesInventoryAndMarksAccepted() {
         SalesOrder order = buildOrder(1L, OrderWorkflowService.STATUS_PENDING_WAREHOUSE_CHECK, 100L, 5.0);
@@ -89,9 +95,14 @@ class OrderWorkflowServiceTest {
 
         assertEquals(OrderWorkflowService.STATUS_ACCEPTED, result.getOrder().getStatus());
         assertTrue(result.getShortages().isEmpty());
-        ArgumentCaptor<List<InventoryItem>> inventoryCaptor = ArgumentCaptor.forClass(List.class);
-        verify(inventoryItemRepository).saveAll(inventoryCaptor.capture());
-        assertEquals(7.0, inventoryCaptor.getValue().get(0).getReservedQuantity());
+        verify(inventoryItemRepository).saveAll(argThat(items -> {
+            java.util.Iterator<InventoryItem> iterator = items.iterator();
+            if (!iterator.hasNext()) {
+                return false;
+            }
+            InventoryItem saved = iterator.next();
+            return !iterator.hasNext() && saved.getReservedQuantity() == 7.0;
+        }));
         verify(productionPlanRepository, never()).save(any());
         verify(notificationService).broadcast(eq("/topic/orders/sales"), any());
         verify(notificationService, never()).broadcast(eq("/topic/orders/warehouse"), any());
@@ -119,7 +130,13 @@ class OrderWorkflowServiceTest {
         assertEquals(1, result.getProductionPlans().size());
         verify(productionPlanRepository).save(any());
         verify(notificationService).broadcast(eq("/topic/orders/production"), any());
-        verify(notificationService, never()).broadcast(eq("/topic/orders/warehouse"), any());
+        ArgumentCaptor<NotificationMessage> warehouseMessageCaptor = ArgumentCaptor.forClass(NotificationMessage.class);
+        verify(notificationService).broadcast(eq("/topic/orders/warehouse"), warehouseMessageCaptor.capture());
+        NotificationMessage warehouseMessage = warehouseMessageCaptor.getValue();
+        assertEquals("ORDER_PRODUCTION_REQUIRED", warehouseMessage.getMessageType());
+        OrderWorkflowService.WorkflowEvent workflowEvent = (OrderWorkflowService.WorkflowEvent) warehouseMessage.getPayload();
+        assertEquals("已将生产计划发送给生产管理员。", workflowEvent.getNotificationTitle());
+        assertTrue(workflowEvent.getNotificationMeta().contains("订单 SO-2 缺货"));
     }
 
     @Test
@@ -147,6 +164,7 @@ class OrderWorkflowServiceTest {
             saved.setId(31L);
             return saved;
         });
+        when(productionMaterialRequestService.requireReadyRequestForOrder(3L)).thenReturn(new com.code.entity.ProductionMaterialRequest());
         when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         SalesOrder result = orderWorkflowService.markProductionCompleted(3L, "prod@test.com", "done");
@@ -159,6 +177,7 @@ class OrderWorkflowServiceTest {
         verify(productionPlanRepository).saveAll(any());
         verify(inventoryItemRepository, never()).save(any(InventoryItem.class));
         verify(notificationService, times(2)).broadcast(eq("/topic/quality"), any());
+        verify(productionMaterialRequestService).markProductionCompleted(3L);
     }
 
     @Test
@@ -173,17 +192,23 @@ class OrderWorkflowServiceTest {
         plan.setCompletedByEmail("prod@test.com");
         plan.setCompletedByName("生产主管甲");
 
-        Warehouse warehouse = new Warehouse();
-        warehouse.setId(8L);
-        warehouse.setName("成品仓");
+        Warehouse rawWarehouse = new Warehouse();
+        rawWarehouse.setId(7L);
+        rawWarehouse.setCode(WarehouseDefaults.RAW_MATERIAL_WAREHOUSE_CODE);
+        rawWarehouse.setName("原材料仓");
+
+        Warehouse finishedWarehouse = new Warehouse();
+        finishedWarehouse.setId(8L);
+        finishedWarehouse.setCode(WarehouseDefaults.FINISHED_GOODS_WAREHOUSE_CODE);
+        finishedWarehouse.setName("成品仓");
 
         java.util.List<InventoryItem> inventoryState = new java.util.ArrayList<>();
-        java.util.List<Batch> batchState = new java.util.ArrayList<>();
 
         when(salesOrderRepository.findById(6L)).thenReturn(Optional.of(order));
         when(productionPlanRepository.findByPlanNoStartingWithAndStatus("PLAN-" + order.getOrderNo() + "-", "DONE")).thenReturn(List.of(plan));
         when(inventoryItemRepository.findByProductId(600L)).thenAnswer(invocation -> inventoryState);
-        when(warehouseRepository.findAll()).thenReturn(List.of(warehouse));
+        when(productRepository.findById(600L)).thenReturn(Optional.of(order.getItems().get(0).getProduct()));
+        when(warehouseRepository.findByCodeIgnoreCase(WarehouseDefaults.FINISHED_GOODS_WAREHOUSE_CODE)).thenReturn(Optional.of(finishedWarehouse));
         Batch batch = new Batch();
         batch.setId(21L);
         batch.setBatchNo("BT-600");
@@ -205,9 +230,12 @@ class OrderWorkflowServiceTest {
 
         assertEquals(OrderWorkflowService.STATUS_ACCEPTED, result.getStatus());
         assertEquals("WAREHOUSED", plan.getStatus());
-        verify(inventoryItemRepository).save(any(InventoryItem.class));
+        ArgumentCaptor<InventoryItem> inventoryCaptor = ArgumentCaptor.forClass(InventoryItem.class);
+        verify(inventoryItemRepository).save(inventoryCaptor.capture());
+        assertSame(finishedWarehouse, inventoryCaptor.getValue().getWarehouse());
         verify(notificationService).broadcast(eq("/topic/orders/sales"), any());
         verify(stockTransactionRepository).save(any());
+        verify(productionMaterialRequestService).markWarehoused(6L);
     }
 
     @Test

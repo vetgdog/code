@@ -1,10 +1,10 @@
 <template>
-  <div class="min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-on-surface">
+  <div class="min-h-screen bg-slate-50 text-slate-900">
     <div v-if="showShell" class="flex">
       <SidebarNav :items="visibleNavItems" :user-display-name="auth.state.username || 'SCM Controller'" :role-display-name="roleLabel" />
-      <div class="flex-1 min-h-screen md:ml-64">
+      <div class="flex-1 min-h-screen md:ml-72">
         <TopBar :title="pageTitle" :subtitle="pageSubtitle || roleLabel" :realtime-connected="realtime.state.connected" @logout="handleLogout" @open-security="openSecurityPage" />
-        <main class="p-6">
+        <main class="p-6 lg:p-8">
           <RouterView />
         </main>
       </div>
@@ -22,7 +22,7 @@ import SidebarNav from './components/SidebarNav.vue';
 import TopBar from './components/TopBar.vue';
 import { useAuthStore } from './store/auth.js';
 import { useRealtimeStore } from './store/realtime.js';
-import { canAccessRouteName, getRoleLabel } from './constants/access.js';
+import { canAccessRouteName, getDashboardMetaByRole, getRoleLabel } from './constants/access.js';
 
 const route = useRoute();
 const router = useRouter();
@@ -30,8 +30,9 @@ const auth = useAuthStore();
 const realtime = useRealtimeStore();
 
 const showShell = computed(() => route.name !== 'Login' && route.name !== 'Register');
-const pageTitle = computed(() => route.meta?.title || 'SteelOps Precision');
-const pageSubtitle = computed(() => route.meta?.subtitle || '');
+const dashboardMeta = computed(() => getDashboardMetaByRole(auth.state.role));
+const pageTitle = computed(() => (route.name === 'Dashboard' ? dashboardMeta.value.title : (route.meta?.title || 'SteelOps Precision')));
+const pageSubtitle = computed(() => (route.name === 'Dashboard' ? dashboardMeta.value.subtitle : (route.meta?.subtitle || '')));
 const roleLabel = computed(() => getRoleLabel(auth.state.role));
 
 const navItems = computed(() => {

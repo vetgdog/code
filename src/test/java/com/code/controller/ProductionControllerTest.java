@@ -4,6 +4,7 @@ import com.code.entity.Batch;
 import com.code.entity.Product;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.ProductionTaskRepository;
+import com.code.service.ProductionMaterialRequestService;
 import com.code.service.QualityService;
 import com.code.service.WeeklyPlanningService;
 import com.code.websocket.NotificationService;
@@ -43,6 +44,9 @@ class ProductionControllerTest {
     @Mock
     private WeeklyPlanningService weeklyPlanningService;
 
+    @Mock
+    private ProductionMaterialRequestService productionMaterialRequestService;
+
     @Test
     void listQualityAlertsShouldReturnMappedFailedBatchesForCurrentProductionManager() {
         Product product = new Product();
@@ -79,4 +83,5 @@ class ProductionControllerTest {
         verify(qualityService).listProductionAlerts("prod@test.com");
     }
 }
+
 

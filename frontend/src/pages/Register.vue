@@ -1,6 +1,6 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-slate-50 px-6 py-10">
-    <div class="w-full max-w-lg bg-white rounded-2xl shadow-[0_16px_45px_rgba(15,23,42,0.1)] border border-slate-200 p-8">
+  <div class="min-h-screen flex items-center justify-center bg-slate-100 px-6 py-10">
+    <div class="w-full max-w-lg bg-white rounded-2xl shadow-[0_12px_30px_rgba(15,23,42,0.08)] border border-slate-200 p-8">
       <h1 class="text-2xl font-bold text-slate-900">账号注册</h1>
       <p class="text-sm text-slate-500 mt-1">请选择用户类型并创建账号</p>
 

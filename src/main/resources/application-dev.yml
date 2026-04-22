@@ -22,3 +22,10 @@ jwt:
   secret: changeit_replace_in_production_with_secure_value
   expiration-ms: 3600000
 
+app:
+  init:
+    raw-materials:
+      enabled: false
+    demo-master-data:
+      enabled: false
+

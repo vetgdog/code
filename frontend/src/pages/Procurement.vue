@@ -227,7 +227,7 @@
 
     <section v-if="canCreateProcurement" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <h3 class="text-sm font-bold tracking-tight">库存预警采购申请</h3>
-      <div class="mt-3 text-xs text-on-surface-variant">仓库管理员发起的原材料补采申请会在此展示，采购管理员可一键带入采购单。</div>
+      <div class="mt-3 text-xs text-slate-500">仓库管理员发起的原材料补采申请会在此展示，采购管理员可一键带入采购单；带入并下单后，来源申请会自动从待处理队列中移除。</div>
       <div class="mt-4" v-if="purchaseRequests.length === 0">
         <div class="text-sm text-on-surface-variant">当前没有待处理采购申请。</div>
       </div>
@@ -238,6 +238,7 @@
             <th class="pb-2">原材料</th>
             <th class="pb-2">申请数量</th>
             <th class="pb-2">仓库管理员</th>
+            <th class="pb-2">状态</th>
             <th class="pb-2">备注</th>
             <th class="pb-2">时间</th>
             <th class="pb-2">操作</th>
@@ -249,9 +250,16 @@
             <td class="py-3">{{ request.product?.name || request.product?.sku || '-' }}</td>
             <td class="py-3">{{ formatNumber(request.requestedQuantity) }}</td>
             <td class="py-3">{{ request.requestedByName || request.requestedBy || '-' }}</td>
+            <td class="py-3">
+              <span class="rounded-full bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700">{{ request.status || 'OPEN' }}</span>
+            </td>
             <td class="py-3">{{ request.notes || '-' }}</td>
             <td class="py-3">{{ formatDate(request.requestDate) }}</td>
-            <td class="py-3"><button class="text-xs text-primary" @click="applyPurchaseRequest(request)">带入采购单</button></td>
+            <td class="py-3">
+              <button class="text-xs text-primary" @click="applyPurchaseRequest(request)">
+                {{ selectedPurchaseRequestIds.includes(request.id) ? '已带入采购单' : '带入采购单' }}
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -281,11 +289,23 @@
           <button class="rounded bg-primary text-white px-3 py-2 text-sm font-semibold">提交采购单</button>
         </div>
       </form>
+      <div v-if="selectedRequestTags.length" class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+        <p class="text-xs font-semibold text-amber-800">当前已关联采购申请（{{ selectedRequestTags.length }} 条）</p>
+        <div class="mt-2 flex flex-wrap gap-2 text-xs">
+          <span v-for="request in selectedRequestTags" :key="request.id" class="inline-flex items-center gap-2 rounded-full bg-white px-3 py-1 text-amber-800 border border-amber-200">
+            {{ request.requestNo }} / {{ request.product?.name || request.product?.sku || '-' }} × {{ formatNumber(request.requestedQuantity) }}
+            <button type="button" class="text-amber-600" @click="removeSelectedPurchaseRequest(request.id)">移除</button>
+          </span>
+        </div>
+      </div>
       <div class="mt-4" v-if="formItems.length">
         <p class="text-xs text-on-surface-variant">当前采购明细：</p>
         <ul class="text-xs mt-2 space-y-1">
           <li v-for="(item, index) in formItems" :key="`${item.product.id}-${index}`">
-            {{ item.product.name }}（{{ item.product.sku }}） | 供应商 {{ item.preferredSupplier || '-' }} | 数量 {{ formatNumber(item.quantity) }} | 单价 ¥{{ formatAmount(item.unitPrice) }}
+            <div class="flex flex-wrap items-center gap-2">
+              <span>{{ item.product.name }}（{{ item.product.sku }}） | 供应商 {{ item.preferredSupplier || '-' }} | 数量 {{ formatNumber(item.quantity) }} | 单价 ¥{{ formatAmount(item.unitPrice) }}</span>
+              <button type="button" class="text-red-600" @click="removeItem(index)">移除</button>
+            </div>
           </li>
         </ul>
       </div>
@@ -462,6 +482,7 @@ const importError = ref('');
 const importErrors = ref([]);
 const supplierDashboard = ref(null);
 const purchaseRequests = ref([]);
+const selectedPurchaseRequestIds = ref([]);
 
 const rawMaterialFilter = reactive({ keyword: '', startDate: '', endDate: '' });
 const orderFilter = reactive({ keyword: '', status: '', startDate: '', endDate: '' });
@@ -545,6 +566,8 @@ const supplierHint = computed(() => {
   }
   return '';
 });
+
+const selectedRequestTags = computed(() => purchaseRequests.value.filter((request) => selectedPurchaseRequestIds.value.includes(request.id)));
 
 const loadDashboard = async () => {
   if (!isSupplierRole.value) {
@@ -698,18 +721,73 @@ const resetOrderForm = () => {
   itemForm.quantity = null;
   itemForm.unitPrice = null;
   formItems.value = [];
+  selectedPurchaseRequestIds.value = [];
 };
 
 const applyPurchaseRequest = (request) => {
   if (!request?.product?.id) {
     return;
   }
+  mergeFormItem({
+    product: {
+      id: request.product.id,
+      name: request.product.name,
+      sku: request.product.sku
+    },
+    preferredSupplier: request.product?.preferredSupplier || '',
+    quantity: Number(request.requestedQuantity || 0),
+    unitPrice: Number(request.product?.unitPrice || 0)
+  });
+  if (!selectedPurchaseRequestIds.value.includes(request.id)) {
+    selectedPurchaseRequestIds.value = [...selectedPurchaseRequestIds.value, request.id];
+  }
+  updateProcurementNoteFromRequests();
   itemForm.productId = String(request.product.id);
   itemForm.quantity = Number(request.requestedQuantity || 0);
   itemForm.unitPrice = Number(request.product?.unitPrice || 0);
-  if (!orderForm.procurementNote) {
-    orderForm.procurementNote = request.requestNo ? `来源采购申请：${request.requestNo}` : '';
+};
+
+const updateProcurementNoteFromRequests = () => {
+  const requestNos = selectedRequestTags.value.map((item) => item.requestNo).filter(Boolean);
+  if (!requestNos.length) {
+    return;
   }
+  const sourcePrefix = `来源采购申请：${requestNos.join('、')}`;
+  const currentNote = String(orderForm.procurementNote || '').trim();
+  if (!currentNote) {
+    orderForm.procurementNote = sourcePrefix;
+    return;
+  }
+  const sanitized = currentNote.replace(/^来源采购申请：[^；;]+[；;]?\s*/u, '').trim();
+  orderForm.procurementNote = sanitized ? `${sourcePrefix}；${sanitized}` : sourcePrefix;
+};
+
+const mergeFormItem = (nextItem) => {
+  if (!nextItem?.product?.id) {
+    return;
+  }
+  const existingItem = formItems.value.find((item) => String(item.product.id) === String(nextItem.product.id));
+  if (existingItem) {
+    existingItem.quantity = Number(existingItem.quantity || 0) + Number(nextItem.quantity || 0);
+    existingItem.unitPrice = Number(nextItem.unitPrice ?? existingItem.unitPrice ?? 0);
+    existingItem.preferredSupplier = nextItem.preferredSupplier || existingItem.preferredSupplier || '';
+    return;
+  }
+  formItems.value.push({
+    product: nextItem.product,
+    preferredSupplier: nextItem.preferredSupplier || '',
+    quantity: Number(nextItem.quantity || 0),
+    unitPrice: Number(nextItem.unitPrice || 0)
+  });
+};
+
+const removeSelectedPurchaseRequest = (requestId) => {
+  selectedPurchaseRequestIds.value = selectedPurchaseRequestIds.value.filter((id) => id !== requestId);
+  if (!selectedPurchaseRequestIds.value.length) {
+    orderForm.procurementNote = String(orderForm.procurementNote || '').replace(/^来源采购申请：[^；;]+[；;]?\s*/u, '').trim();
+    return;
+  }
+  updateProcurementNoteFromRequests();
 };
 
 const handleCreateRawMaterial = async () => {
@@ -760,7 +838,7 @@ const addItem = () => {
     orderError.value = '所选供应商与当前原材料不匹配，请重新选择。';
     return;
   }
-  formItems.value.push({
+  mergeFormItem({
     product: { id: material.id, name: material.name, sku: material.sku },
     preferredSupplier: material.preferredSupplier || '',
     quantity: Number(itemForm.quantity),
@@ -769,6 +847,10 @@ const addItem = () => {
   itemForm.productId = '';
   itemForm.quantity = null;
   itemForm.unitPrice = null;
+};
+
+const removeItem = (index) => {
+  formItems.value = formItems.value.filter((_, itemIndex) => itemIndex !== index);
 };
 
 const handleCreateOrder = async () => {
@@ -786,6 +868,7 @@ const handleCreateOrder = async () => {
     const payload = {
       supplier: { id: Number(orderForm.supplierId) },
       procurementNote: orderForm.procurementNote || null,
+      sourceRequestIds: selectedPurchaseRequestIds.value,
       items: formItems.value.map((item) => ({
         product: { id: item.product.id },
         quantity: Number(item.quantity),
@@ -795,7 +878,7 @@ const handleCreateOrder = async () => {
     const response = await procurementApi.createOrder(payload);
     orderMessage.value = `采购单 ${response?.data?.poNo || ''} 已提交，并已通知供应商。`;
     resetOrderForm();
-    await loadOrders();
+    await Promise.all([loadOrders(), loadPurchaseRequests()]);
     await loadDashboard();
   } catch (error) {
     orderError.value = error?.response?.data?.message || error?.response?.data || '采购单创建失败。';

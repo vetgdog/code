@@ -35,7 +35,7 @@ const routes = [
     path: '/',
     name: 'Dashboard',
     component: Dashboard,
-    meta: { title: '总经理看板', subtitle: 'Executive overview' }
+    meta: { title: '工作台总览', subtitle: 'Workspace overview' }
   },
   {
     path: '/dashboard',

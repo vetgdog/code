@@ -5,15 +5,18 @@ import com.code.entity.InventoryItem;
 import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseOrderItem;
+import com.code.entity.PurchaseRequest;
 import com.code.entity.Role;
 import com.code.entity.User;
 import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseOrderRepository;
+import com.code.repository.PurchaseRequestRepository;
 import com.code.repository.StockTransactionRepository;
 import com.code.repository.UserRepository;
 import com.code.repository.WarehouseRepository;
+import com.code.support.WarehouseDefaults;
 import com.code.websocket.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,6 +30,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.Mockito.never;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,6 +48,9 @@ class ProcurementWorkflowServiceTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private PurchaseRequestRepository purchaseRequestRepository;
 
     @Mock
     private UserRepository userRepository;
@@ -95,6 +102,47 @@ class ProcurementWorkflowServiceTest {
     }
 
     @Test
+    void createPurchaseOrderMarksSourceRequestsConverted() {
+        User supplier = supplierUser(11L, "supplier11", "供应商甲", "supplier11@example.com");
+
+        Product material = new Product();
+        material.setId(110L);
+        material.setName("冷轧钢卷");
+        material.setSku("RM-110");
+        material.setProductType("RAW_MATERIAL");
+        material.setUnitPrice(4.2);
+        material.setPreferredSupplier("供应商甲");
+
+        PurchaseRequest purchaseRequest = new PurchaseRequest();
+        purchaseRequest.setId(801L);
+        purchaseRequest.setRequestNo("PR-MAT-801");
+        purchaseRequest.setStatus("OPEN");
+        purchaseRequest.setProduct(material);
+
+        PurchaseOrderItem item = new PurchaseOrderItem();
+        item.setProduct(material);
+        item.setQuantity(5.0);
+        item.setUnitPrice(4.5);
+
+        PurchaseOrder order = new PurchaseOrder();
+        order.setSupplier(supplier);
+        order.setItems(List.of(item));
+        order.setSourceRequestIds(List.of(801L));
+
+        when(userRepository.findById(11L)).thenReturn(Optional.of(supplier));
+        when(productRepository.findById(110L)).thenReturn(Optional.of(material));
+        when(purchaseRequestRepository.findAllById(List.of(801L))).thenReturn(List.of(purchaseRequest));
+        when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        PurchaseOrder result = procurementWorkflowService.createPurchaseOrder(order, "proc@test.com");
+
+        assertEquals(ProcurementWorkflowService.STATUS_WAITING_SUPPLIER, result.getStatus());
+        assertEquals("CONVERTED", purchaseRequest.getStatus());
+        assertEquals(supplier, purchaseRequest.getSupplier());
+        verify(purchaseRequestRepository).saveAll(any());
+    }
+
+    @Test
     void supplierShipUpdatesStatusAndNotifiesProcurement() {
         User supplier = supplierUser(2L, "supplier02", "供应商乙", "supplier@example.com");
 
@@ -135,13 +183,20 @@ class ProcurementWorkflowServiceTest {
         order.setStatus(ProcurementWorkflowService.STATUS_WAITING_WAREHOUSE_RECEIPT);
         order.setItems(List.of(item));
 
-        Warehouse warehouse = new Warehouse();
-        warehouse.setId(9L);
-        warehouse.setName("原料仓");
+        Warehouse rawWarehouse = new Warehouse();
+        rawWarehouse.setId(9L);
+        rawWarehouse.setCode(WarehouseDefaults.RAW_MATERIAL_WAREHOUSE_CODE);
+        rawWarehouse.setName("原料仓");
+
+        Warehouse finishedWarehouse = new Warehouse();
+        finishedWarehouse.setId(10L);
+        finishedWarehouse.setCode(WarehouseDefaults.FINISHED_GOODS_WAREHOUSE_CODE);
+        finishedWarehouse.setName("成品仓");
 
         when(purchaseOrderRepository.findById(3L)).thenReturn(Optional.of(order));
         when(inventoryItemRepository.findByProductId(30L)).thenReturn(List.of());
-        when(warehouseRepository.findAll()).thenReturn(List.of(warehouse));
+        when(productRepository.findById(30L)).thenReturn(Optional.of(material));
+        when(warehouseRepository.findByCodeIgnoreCase(WarehouseDefaults.RAW_MATERIAL_WAREHOUSE_CODE)).thenReturn(Optional.of(rawWarehouse));
         when(inventoryItemRepository.save(any(InventoryItem.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(stockTransactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
         when(purchaseOrderRepository.save(any(PurchaseOrder.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -149,7 +204,9 @@ class ProcurementWorkflowServiceTest {
         PurchaseOrder result = procurementWorkflowService.warehouseReceive(3L, "warehouse@test.com", "received");
 
         assertEquals(ProcurementWorkflowService.STATUS_WAREHOUSED, result.getStatus());
-        verify(inventoryItemRepository).save(any(InventoryItem.class));
+        org.mockito.ArgumentCaptor<InventoryItem> inventoryCaptor = org.mockito.ArgumentCaptor.forClass(InventoryItem.class);
+        verify(inventoryItemRepository).save(inventoryCaptor.capture());
+        assertSame(rawWarehouse, inventoryCaptor.getValue().getWarehouse());
         verify(notificationService).broadcast(eq("/topic/procurement/manager"), any());
     }
 
