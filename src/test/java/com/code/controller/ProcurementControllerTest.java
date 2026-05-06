@@ -11,6 +11,8 @@ import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseOrderRepository;
 import com.code.repository.PurchaseRequestRepository;
 import com.code.service.ProcurementWorkflowService;
+import com.code.service.WeeklyPlanningService;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -24,6 +26,8 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import java.io.ByteArrayOutputStream;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -56,6 +60,9 @@ class ProcurementControllerTest {
 
     @Mock
     private ProcurementWorkflowService procurementWorkflowService;
+
+    @Mock
+    private WeeklyPlanningService weeklyPlanningService;
 
     @Mock
     private Authentication authentication;
@@ -187,7 +194,37 @@ class ProcurementControllerTest {
         assertEquals(200, response.getStatusCodeValue());
         assertTrue(String.valueOf(response.getHeaders().getFirst("Content-Disposition")).contains("procurement-records.csv"));
         assertNotNull(response.getBody());
-        assertTrue(new String((byte[]) response.getBody()).contains("PO-001"));
+        byte[] body = (byte[]) response.getBody();
+        assertTrue(body.length > 3);
+        assertEquals((byte) 0xEF, body[0]);
+        assertEquals((byte) 0xBB, body[1]);
+        assertEquals((byte) 0xBF, body[2]);
+        String csv = new String(body, 3, body.length - 3, StandardCharsets.UTF_8);
+        assertTrue(csv.contains("PO-001"));
+        assertTrue(csv.contains("待供应商确认"));
+    }
+
+    @Test
+    void exportOrdersAsExcelKeepsChineseReadable() throws Exception {
+        java.util.List<org.springframework.security.core.GrantedAuthority> authorities = java.util.List.of(new SimpleGrantedAuthority("ROLE_PROCUREMENT_MANAGER"));
+        doReturn(authorities).when(authentication).getAuthorities();
+        when(authentication.getName()).thenReturn("proc@example.com");
+        when(procurementWorkflowService.listOrders("ROLE_PROCUREMENT_MANAGER", "proc@example.com")).thenReturn(List.of());
+        when(procurementWorkflowService.buildExportRows(List.of())).thenReturn(List.of(
+                new ProcurementExportRowDto("PO-002", "供应商已发货", "SUP-2", "供应商乙", "RM-2", "不锈钢板", 8.0, 9.5, 76.0, 76.0,
+                        "2026-04-16T11:00:00", "2026-04-17T12:00:00", "", "已发货", "加急", "")
+        ));
+
+        ResponseEntity<?> response = procurementController.exportOrders(null, null, null, null, "xlsx", authentication);
+
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        try (XSSFWorkbook workbook = new XSSFWorkbook(new ByteArrayInputStream((byte[]) response.getBody()))) {
+            XSSFSheet sheet = workbook.getSheetAt(0);
+            assertEquals("状态", sheet.getRow(0).getCell(1).getStringCellValue());
+            assertEquals("供应商已发货", sheet.getRow(1).getCell(1).getStringCellValue());
+            assertEquals("不锈钢板", sheet.getRow(1).getCell(5).getStringCellValue());
+        }
     }
 
     @Test

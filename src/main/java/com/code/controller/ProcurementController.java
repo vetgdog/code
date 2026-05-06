@@ -11,6 +11,7 @@ import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseRequestRepository;
 import com.code.service.ProcurementWorkflowService;
 import com.code.service.WeeklyPlanningService;
+import com.code.util.CsvExportUtils;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -32,7 +33,6 @@ import org.springframework.security.core.Authentication;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -176,7 +176,7 @@ public class ProcurementController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=procurement-records.csv")
                 .contentType(MediaType.parseMediaType("text/csv;charset=UTF-8"))
-                .body(builder.toString().getBytes(StandardCharsets.UTF_8));
+                .body(CsvExportUtils.toExcelCompatibleUtf8Bytes(builder.toString()));
     }
 
     private ResponseEntity<byte[]> exportOrdersAsExcel(List<ProcurementExportRowDto> rows) {

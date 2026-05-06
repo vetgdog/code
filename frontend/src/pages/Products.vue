@@ -4,7 +4,6 @@
       <div class="flex items-center justify-between gap-4">
         <div>
           <h3 class="text-lg font-bold text-white tracking-tight">产品档案管理</h3>
-          <p class="mt-2 text-sm text-cyan-100/80">维护客户可下单的成品资料，前台展示与销售侧产品档案保持同步。</p>
         </div>
       </div>
       <form class="mt-6 grid grid-cols-1 md:grid-cols-5 gap-3" @submit.prevent="handleCreateProduct">

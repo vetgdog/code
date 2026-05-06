@@ -4,7 +4,7 @@
       <div class="panel-header flex items-center justify-between gap-4">
         <div>
           <h3 class="text-base font-bold text-white tracking-tight">{{ isSupplierRole ? '我的原材料' : '原材料档案' }}</h3>
-          <p class="mt-1 text-xs text-cyan-100/70">{{ isSupplierRole ? '仅展示当前供应商可维护的原材料数据。' : '统一维护原材料详情并支持 Excel 模板导入。' }}</p>
+          <p class="mt-1 text-xs text-slate-400">{{ isSupplierRole ? '仅展示当前供应商可维护的原材料数据。' : '统一维护原材料详情并支持 Excel 模板导入。' }}</p>
         </div>
         <div class="flex items-center gap-3">
           <button class="neo-button-secondary" @click="downloadTemplate">下载模板</button>
@@ -22,7 +22,7 @@
           </div>
         </div>
         <div v-if="showRawMaterialError" class="mb-3 text-sm text-rose-300">{{ rawMaterialError }}</div>
-        <div v-if="rawMaterials.length === 0" class="text-sm text-cyan-100/70">{{ rawMaterialEmptyText }}</div>
+        <div v-if="rawMaterials.length === 0" class="text-sm text-slate-400">{{ rawMaterialEmptyText }}</div>
         <table v-else class="neo-table">
           <thead>
             <tr>
@@ -48,7 +48,7 @@
           </tbody>
         </table>
 
-        <div v-if="selectedMaterial" class="mt-5 rounded-3xl border border-cyan-400/20 bg-slate-950/40 p-5 text-sm text-cyan-50">
+        <div v-if="selectedMaterial" class="mt-5 rounded-3xl border border-cyan-400/20 bg-slate-950/40 p-5 text-sm text-slate-300">
           <h4 class="text-base font-bold">原材料详情</h4>
           <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             <div>SKU：{{ selectedMaterial.sku || '-' }}</div>
@@ -69,7 +69,7 @@
     <section v-if="canManageRawMaterials" class="panel-surface p-6">
       <h3 class="text-base font-bold text-white">新增原材料</h3>
       <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" @submit.prevent="handleCreateRawMaterial">
-        <div class="rounded-2xl border border-cyan-400/20 bg-slate-950/40 px-4 py-3 text-sm text-cyan-100/70">原材料编号将由系统自动生成</div>
+        <div class="rounded-2xl border border-cyan-400/20 bg-slate-950/40 px-4 py-3 text-sm text-slate-400">原材料编号将由系统自动生成</div>
         <input v-model="form.name" placeholder="原材料名称" class="neo-input" required />
         <input v-model="form.materialCategory" placeholder="原材料分类" class="neo-input" />
         <input v-model="form.specification" placeholder="规格型号" class="neo-input" />
@@ -91,9 +91,9 @@
 
     <section v-if="canManageRawMaterials" class="panel-surface p-6">
       <h3 class="text-base font-bold text-white">Excel 批量导入原材料</h3>
-      <div class="mt-3 text-sm text-cyan-100/70">建议先下载模板后填写，再上传 `.xlsx` 文件。</div>
+      <div class="mt-3 text-sm text-slate-400">建议先下载模板后填写，再上传 `.xlsx` 文件。</div>
       <div class="mt-4 flex flex-col md:flex-row gap-4 items-start">
-        <input type="file" accept=".xlsx" class="block text-sm text-cyan-100/80" @change="handleFileChange" />
+        <input type="file" accept=".xlsx" class="block text-sm text-slate-400" @change="handleFileChange" />
         <button class="neo-button-primary" :disabled="!importFile || importing" @click="handleImportRawMaterials">{{ importing ? '导入中...' : '开始导入' }}</button>
       </div>
       <div v-if="importMessage" class="mt-3 text-sm text-emerald-300">{{ importMessage }}</div>

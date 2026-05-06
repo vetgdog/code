@@ -161,69 +161,6 @@
       </div>
     </section>
 
-    <section v-if="canManageRawMaterials" class="bg-white rounded-lg border border-outline-variant/10 p-5">
-      <h3 class="text-sm font-bold tracking-tight">新增原材料</h3>
-      <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" @submit.prevent="handleCreateRawMaterial">
-        <div class="rounded border border-dashed border-outline-variant/40 px-3 py-2 text-sm text-on-surface-variant bg-slate-50">
-          原材料编号将由系统自动生成
-        </div>
-        <input v-model="rawMaterialForm.name" placeholder="原材料名称" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
-        <input v-model="rawMaterialForm.materialCategory" placeholder="原材料分类" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <input v-model="rawMaterialForm.specification" placeholder="规格型号" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <input v-model="rawMaterialForm.unit" placeholder="单位" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <input v-model.number="rawMaterialForm.unitPrice" type="number" min="0" step="0.01" placeholder="默认单价" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <input v-model="rawMaterialForm.preferredSupplier" :placeholder="isSupplierRole ? '当前供应商将自动绑定' : '首选供应商'" :readonly="isSupplierRole" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" :class="isSupplierRole ? 'bg-slate-50 text-on-surface-variant' : ''" />
-        <input v-model="rawMaterialForm.origin" placeholder="原产地" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <input v-model.number="rawMaterialForm.safetyStock" type="number" min="0" step="0.01" placeholder="安全库存" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <input v-model.number="rawMaterialForm.leadTimeDays" type="number" min="0" step="1" placeholder="供货周期（天）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
-        <textarea v-model="rawMaterialForm.description" placeholder="描述说明" class="md:col-span-2 xl:col-span-3 rounded border border-outline-variant/40 px-3 py-2 text-sm min-h-24"></textarea>
-        <div class="flex gap-3 md:col-span-2 xl:col-span-3">
-          <button class="rounded bg-primary text-white px-4 py-2 text-sm font-semibold">保存原材料</button>
-          <button type="button" class="rounded border border-outline-variant/40 px-4 py-2 text-sm" @click="resetRawMaterialForm">清空</button>
-        </div>
-      </form>
-      <div v-if="rawMaterialMessage" class="mt-3 text-xs text-emerald-600">{{ rawMaterialMessage }}</div>
-      <div v-if="rawMaterialCreateError" class="mt-3 text-xs text-error">{{ rawMaterialCreateError }}</div>
-    </section>
-
-    <section v-if="canManageRawMaterials" class="bg-white rounded-lg border border-outline-variant/10 p-5">
-      <h3 class="text-sm font-bold tracking-tight">Excel 批量导入原材料</h3>
-      <div class="mt-3 text-xs text-on-surface-variant">建议先下载模板后填写，再上传 `.xlsx` 文件。系统会按 SKU 自动判断新增或更新。</div>
-      <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div>
-          <label class="block text-xs font-semibold text-on-surface-variant mb-2">选择 Excel 文件</label>
-          <input type="file" accept=".xlsx" class="block w-full text-sm" @change="handleFileChange" />
-          <div class="mt-3 flex gap-3">
-            <button class="rounded bg-primary text-white px-4 py-2 text-sm font-semibold disabled:opacity-50" :disabled="!importFile || importing" @click="handleImportRawMaterials">
-              {{ importing ? '导入中...' : '开始导入' }}
-            </button>
-            <button type="button" class="rounded border border-outline-variant/40 px-4 py-2 text-sm" @click="downloadTemplate">下载模板</button>
-          </div>
-          <div v-if="importMessage" class="mt-3 text-xs text-emerald-600">{{ importMessage }}</div>
-          <div v-if="importError" class="mt-3 text-xs text-error">{{ importError }}</div>
-          <ul v-if="importErrors.length" class="mt-3 space-y-1 text-xs text-error">
-            <li v-for="item in importErrors" :key="item">{{ item }}</li>
-          </ul>
-        </div>
-        <div>
-          <h4 class="text-xs font-semibold text-on-surface-variant mb-2">Excel 模板字段说明</h4>
-          <table class="w-full text-xs">
-            <thead>
-              <tr class="text-left text-on-surface-variant">
-                <th class="pb-2">列名</th>
-                <th class="pb-2">说明</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in templateColumns" :key="item.name" class="border-t border-outline-variant/20">
-                <td class="py-2 font-semibold">{{ item.name }}</td>
-                <td class="py-2">{{ item.label }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </section>
 
     <section v-if="canCreateProcurement" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <h3 class="text-sm font-bold tracking-tight">库存预警采购申请</h3>

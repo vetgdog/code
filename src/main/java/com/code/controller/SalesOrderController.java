@@ -3,6 +3,7 @@ package com.code.controller;
 import com.code.entity.OrderItem;
 import com.code.entity.SalesRecord;
 import com.code.entity.SalesOrder;
+import com.code.util.CsvExportUtils;
 import com.code.repository.SalesOrderRepository;
 import com.code.entity.ProductionPlan;
 import com.code.repository.ProductionPlanRepository;
@@ -218,12 +219,12 @@ public class SalesOrderController {
     }
 
     @GetMapping("/sales-records/export")
-    public ResponseEntity<String> exportSalesRecords(@RequestParam(required = false) String startDate,
+    public ResponseEntity<byte[]> exportSalesRecords(@RequestParam(required = false) String startDate,
                                                      @RequestParam(required = false) String endDate,
                                                      Authentication authentication) {
         ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
         List<SalesRecord> records = querySalesRecords(startDate, endDate, authentication);
-        String csv = buildSalesRecordCsv(records);
+        byte[] csv = CsvExportUtils.toExcelCompatibleUtf8Bytes(buildSalesRecordCsv(records));
         String fileName = "sales-records-" + LocalDate.now() + ".csv";
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + fileName + "\"")

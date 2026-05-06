@@ -4,13 +4,13 @@
       <div class="panel-header flex items-center justify-between gap-4">
         <div>
           <h3 class="text-base font-bold text-white">销售记录</h3>
-          <p class="mt-1 text-xs text-cyan-100/70">销售管理员仅查看自己的销售记录；周甘特统计基于所有销售记录统一生成。</p>
+          <p class="mt-1 text-xs text-slate-400">销售管理员仅查看自己的销售记录；周甘特统计基于所有销售记录统一生成。</p>
         </div>
         <div class="flex items-center gap-2">
           <input v-model="filter.startDate" type="date" class="neo-input !py-2" />
           <input v-model="filter.endDate" type="date" class="neo-input !py-2" />
           <button class="neo-button-secondary" @click="loadRecords">筛选</button>
-          <button class="neo-button-secondary" @click="exportRecords">导出 CSV</button>
+          <button class="neo-button-secondary" @click="exportRecords">导出 Excel 兼容 CSV</button>
         </div>
       </div>
       <div class="p-5">
