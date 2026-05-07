@@ -32,6 +32,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -204,6 +205,49 @@ class WeeklyPlanningServiceTest {
         assertTrue(item.getSuggestionReason().contains("BOM需求"));
         verify(notificationService).broadcast(eq("/topic/procurement/manager"), any());
         verify(notificationService).broadcast(eq("/topic/procurement"), any());
+    }
+
+    @Test
+    void generateProductionPlanShouldReplaceExistingItemsInPlaceWhenSameWeekRegenerated() {
+        LocalDate referenceDate = LocalDate.of(2026, 5, 7);
+        LocalDate weekStart = LocalDate.of(2026, 5, 4);
+
+        Product finished = new Product();
+        finished.setId(1L);
+        finished.setName("成品机柜");
+        finished.setSku("FG-001");
+        finished.setProductType("FINISHED_GOOD");
+
+        ProductionWeeklyPlan existingPlan = new ProductionWeeklyPlan();
+        existingPlan.setId(99L);
+        existingPlan.setWeekStart(weekStart);
+        existingPlan.setItems(new ArrayList<>());
+
+        ProductionWeeklyPlanItem staleItem = new ProductionWeeklyPlanItem();
+        staleItem.setPlan(existingPlan);
+        staleItem.setProduct(finished);
+        staleItem.setSuggestedQuantity(1.0);
+        existingPlan.getItems().add(staleItem);
+
+        ProductionPlan lastWeekPlan = new ProductionPlan();
+        lastWeekPlan.setProduct(finished);
+        lastWeekPlan.setPlannedQuantity(20.0);
+        lastWeekPlan.setStatus("DONE");
+        lastWeekPlan.setEndDate(LocalDateTime.of(2026, 5, 1, 10, 0));
+
+        when(productionWeeklyPlanRepository.findByWeekStart(weekStart)).thenReturn(Optional.of(existingPlan));
+        when(productionPlanRepository.findAll()).thenReturn(List.of(lastWeekPlan));
+        when(salesOrderRepository.findAll()).thenReturn(List.of());
+        when(productRepository.findAll()).thenReturn(List.of(finished));
+        when(inventoryItemRepository.findAll()).thenReturn(List.of());
+        when(productionWeeklyPlanRepository.save(any(ProductionWeeklyPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ProductionWeeklyPlan regenerated = weeklyPlanningService.generateProductionPlan(referenceDate, "planner@test.com");
+
+        assertEquals(existingPlan, regenerated);
+        assertEquals(1, regenerated.getItems().size());
+        assertEquals(22.0, regenerated.getItems().get(0).getSuggestedQuantity());
+        assertEquals(existingPlan, regenerated.getItems().get(0).getPlan());
     }
 }
 

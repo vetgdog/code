@@ -2,8 +2,6 @@ package com.code.service;
 
 import com.code.entity.Bom;
 import com.code.entity.BomItem;
-import com.code.entity.InventoryItem;
-import com.code.entity.OrderItem;
 import com.code.entity.Product;
 import com.code.entity.ProcurementWeeklyPlan;
 import com.code.entity.ProcurementWeeklyPlanItem;
@@ -11,7 +9,6 @@ import com.code.entity.ProductionPlan;
 import com.code.entity.ProductionWeeklyPlan;
 import com.code.entity.ProductionWeeklyPlanItem;
 import com.code.entity.PurchaseOrder;
-import com.code.entity.PurchaseOrderItem;
 import com.code.entity.SalesOrder;
 import com.code.repository.BomItemRepository;
 import com.code.repository.BomRepository;
@@ -39,8 +36,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -163,7 +161,7 @@ public class WeeklyPlanningService {
         }
 
         items.sort(Comparator.comparing(item -> item.getProduct() == null ? "" : safe(item.getProduct().getName())));
-        plan.setItems(items);
+        replacePlanItems(plan::getItems, plan::setItems, items);
         ProductionWeeklyPlan saved = productionWeeklyPlanRepository.save(plan);
         notificationService.broadcast(
                 "/topic/production",
@@ -242,7 +240,7 @@ public class WeeklyPlanningService {
         }
 
         items.sort(Comparator.comparing(item -> item.getProduct() == null ? "" : safe(item.getProduct().getName())));
-        plan.setItems(items);
+        replacePlanItems(plan::getItems, plan::setItems, items);
         ProcurementWeeklyPlan saved = procurementWeeklyPlanRepository.save(plan);
         notificationService.broadcast(
                 "/topic/procurement/manager",
@@ -422,6 +420,20 @@ public class WeeklyPlanningService {
         return String.format(Locale.ROOT,
                 "BOM需求 %.2f，上周采购 %.2f，当前库存 %.2f，在途 %.2f，安全库存缺口 %.2f。",
                 round2(bomDemand), round2(procured), round2(inventory), round2(inTransit), round2(safetyGap));
+    }
+
+    private <T> void replacePlanItems(Supplier<List<T>> getter, Consumer<List<T>> setter, List<T> newItems) {
+        List<T> existing = getter.get();
+        if (existing == null) {
+            setter.accept(new ArrayList<>(newItems));
+            return;
+        }
+        try {
+            existing.clear();
+            existing.addAll(newItems);
+        } catch (UnsupportedOperationException ex) {
+            setter.accept(new ArrayList<>(newItems));
+        }
     }
 
     private double safeNumber(Double value) {

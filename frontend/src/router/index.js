@@ -57,7 +57,7 @@ const routes = [
     path: '/sales-records',
     name: 'SalesRecords',
     component: SalesRecords,
-    meta: { title: '销售记录', subtitle: 'Sales history and gantt overview' }
+    meta: { title: '销售记录', subtitle: 'Sales history and last-week product bar chart' }
   },
   {
     path: '/production',

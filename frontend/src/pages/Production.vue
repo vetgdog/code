@@ -232,10 +232,15 @@
       </div>
     </section>
 
-    <WeeklyGantt
-      title="生产周甘特概览（全员统计）"
-      :items="productionGanttItems"
-      empty-text="当前没有可用于统计的生产记录。"
+    <div v-if="productionChartError" class="rounded-lg border border-rose-500/20 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+      {{ productionChartError }}
+    </div>
+
+    <ProductionWeeklyBarChart
+      title="上周产品产量柱状图（全员统计）"
+      description="柱状图固定统计上一个周所有生产管理员已完工的生产记录，支持按产品名称搜索、悬停查看详情，并按页码每页浏览 5 个产品。"
+      :records="productionChartRecords"
+      empty-text="上一个周没有可用于统计的生产记录。"
     />
   </div>
 </template>
@@ -245,7 +250,7 @@ import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { orderApi, productionApi, productApi } from '../api/services.js';
 import { useRealtimeStore } from '../store/realtime.js';
 import { useAuthStore } from '../store/auth.js';
-import WeeklyGantt from '../components/WeeklyGantt.vue';
+import ProductionWeeklyBarChart from '../components/ProductionWeeklyBarChart.vue';
 
 const auth = useAuthStore();
 const canUpdateProduction = computed(() => auth.hasPermission('production:update'));
@@ -255,7 +260,8 @@ const loading = ref(false);
 const statusMessage = ref('');
 const statusError = ref('');
 const productionRecords = ref([]);
-const productionOverviewRecords = ref([]);
+const productionChartRecords = ref([]);
+const productionChartError = ref('');
 const recordError = ref('');
 const qualityAlerts = ref([]);
 const qualityAlertError = ref('');
@@ -278,6 +284,27 @@ const recordFilter = reactive({
   endDate: ''
 });
 const realtime = useRealtimeStore();
+
+const formatDateParam = (date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
+const resolveLastWeekRange = () => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const currentDay = today.getDay() || 7;
+  const currentWeekMonday = new Date(today);
+  currentWeekMonday.setDate(today.getDate() - currentDay + 1);
+
+  const lastWeekStart = new Date(currentWeekMonday);
+  lastWeekStart.setDate(currentWeekMonday.getDate() - 7);
+
+  const lastWeekEnd = new Date(currentWeekMonday);
+  lastWeekEnd.setDate(currentWeekMonday.getDate() - 1);
+
+  return {
+    startDate: formatDateParam(lastWeekStart),
+    endDate: formatDateParam(lastWeekEnd)
+  };
+};
 
 const loadOrders = async () => {
   loading.value = true;
@@ -411,21 +438,17 @@ const loadRecords = async () => {
   } catch (error) {
     productionRecords.value = [];
     recordError.value = error?.response?.data?.message || error?.response?.data || '生产记录加载失败。';
-  } finally {
-    await loadRecordOverview();
   }
 };
 
-const loadRecordOverview = async () => {
+const loadLastWeekProductionOverview = async () => {
+  productionChartError.value = '';
   try {
-    const response = await productionApi.listRecordOverview({
-      keyword: recordFilter.keyword || undefined,
-      startDate: recordFilter.startDate || undefined,
-      endDate: recordFilter.endDate || undefined
-    });
-    productionOverviewRecords.value = response.data || [];
+    const response = await productionApi.listRecordOverview(resolveLastWeekRange());
+    productionChartRecords.value = response.data || [];
   } catch (error) {
-    productionOverviewRecords.value = [];
+    productionChartRecords.value = [];
+    productionChartError.value = error?.response?.data?.message || error?.response?.data || '上周产品产量统计加载失败。';
   }
 };
 
@@ -487,7 +510,7 @@ const latestRequestByOrder = computed(() => materialRequests.value.reduce((accum
 const canCompleteOrder = (orderId) => latestRequestByOrder.value[orderId]?.status === '已备料待生产';
 
 onMounted(async () => {
-  await Promise.all([loadOrders(), loadRecords(), loadRecordOverview(), loadQualityAlerts(), loadMaterialRequests(), loadRawMaterialOptions()]);
+  await Promise.all([loadOrders(), loadRecords(), loadLastWeekProductionOverview(), loadQualityAlerts(), loadMaterialRequests(), loadRawMaterialOptions()]);
 });
 
 watch(
@@ -496,20 +519,11 @@ watch(
     if (message?.topic && (message.topic.startsWith('/topic/orders') || message.topic.startsWith('/topic/production') || message.topic.startsWith('/topic/quality') || message.topic.startsWith('/topic/procurement'))) {
       loadOrders();
       loadRecords();
-      loadRecordOverview();
+      loadLastWeekProductionOverview();
       loadQualityAlerts();
       loadMaterialRequests();
     }
   }
 );
-const productionGanttItems = computed(() => productionOverviewRecords.value.map((record) => ({
-  id: record.id,
-  label: `${record.planNo} / ${record.productName || '-'}`,
-  meta: `${record.completedByName || record.createdByName || '生产管理员'} · ${formatNumber(record.plannedQuantity)}`,
-  start: record.startDate || record.createdAt,
-  end: record.completedAt || record.createdAt,
-  shortText: record.completedByName || '生产',
-  color: '#ea580c'
-})));
 </script>
 
