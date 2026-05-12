@@ -15,32 +15,10 @@ export const INTERNAL_POSITIONS = [
 
 const ROLE_CONFIG = {
   ROLE_ADMIN: {
-    defaultRouteName: 'Dashboard',
-    routeNames: ['Dashboard', 'Orders', 'Products', 'SalesRecords', 'Production', 'ProductionPlan', 'Inventory', 'InventoryAlert', 'Procurement', 'RawMaterials', 'ProcurementPlan', 'Quality', 'Customer', 'AccountAdmin', 'PasswordSecurity'],
+    defaultRouteName: 'AccountAdmin',
+    routeNames: ['AccountAdmin', 'PasswordSecurity'],
     permissions: [
-      'dashboard:view',
-      'admin:user-manage',
-      'orders:view',
-      'orders:create',
-      'orders:plan',
-      'orders:review',
-      'orders:warehouse-check',
-      'production:view',
-      'production:create',
-      'production:update',
-      'production:plan:view',
-      'inventory:view',
-      'inventory:alerts',
-      'inventory:edit',
-      'inventory:receive',
-      'procurement:view',
-      'procurement:create',
-      'procurement:plan:view',
-      'procurement:raw-material-manage',
-      'procurement:supplier-act',
-      'procurement:notify-warehouse',
-      'quality:view',
-      'customer:view'
+      'admin:user-manage'
     ]
   },
   ROLE_CUSTOMER: {

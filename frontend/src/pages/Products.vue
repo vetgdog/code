@@ -3,7 +3,7 @@
     <section class="panel-surface p-6">
       <div class="flex items-center justify-between gap-4">
         <div>
-          <h3 class="text-lg font-bold text-white tracking-tight">产品档案管理</h3>
+          <h3 class="text-lg font-bold text-black tracking-tight">产品档案管理</h3>
         </div>
       </div>
       <form class="mt-6 grid grid-cols-1 md:grid-cols-5 gap-3" @submit.prevent="handleCreateProduct">
