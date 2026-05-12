@@ -14,5 +14,6 @@ public interface BatchRepository extends JpaRepository<Batch, Long> {
 	Optional<Batch> findBySourceOrderNoAndProductId(String sourceOrderNo, Long productId);
 	List<Batch> findBySourceOrderNoIgnoreCaseOrderByCreatedAtDesc(String sourceOrderNo);
 	List<Batch> findByProductionManagerEmailIgnoreCaseAndQualityStatusOrderByQualityInspectedAtDesc(String productionManagerEmail, String qualityStatus);
+	boolean existsByProductId(Long productId);
 }
 

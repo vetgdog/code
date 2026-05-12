@@ -9,5 +9,6 @@ import java.util.List;
 @Repository
 public interface InventoryItemRepository extends JpaRepository<InventoryItem, Long> {
 	List<InventoryItem> findByProductId(Long productId);
+	boolean existsByProductId(Long productId);
 }
 

@@ -7,9 +7,15 @@ import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseRequest;
 import com.code.entity.Role;
 import com.code.entity.User;
+import com.code.repository.BatchRepository;
+import com.code.repository.InventoryItemRepository;
+import com.code.repository.MrpRequirementRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.PurchaseOrderRepository;
+import com.code.repository.PurchaseOrderItemRepository;
 import com.code.repository.PurchaseRequestRepository;
+import com.code.repository.ProductionMaterialRequestItemRepository;
+import com.code.repository.StockTransactionRepository;
 import com.code.service.ProcurementWorkflowService;
 import com.code.service.WeeklyPlanningService;
 import org.apache.poi.xssf.usermodel.XSSFSheet;
@@ -24,6 +30,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.ByteArrayOutputStream;
 import java.io.ByteArrayInputStream;
@@ -33,6 +40,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -40,6 +48,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -57,6 +66,24 @@ class ProcurementControllerTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private PurchaseOrderItemRepository purchaseOrderItemRepository;
+
+    @Mock
+    private InventoryItemRepository inventoryItemRepository;
+
+    @Mock
+    private StockTransactionRepository stockTransactionRepository;
+
+    @Mock
+    private MrpRequirementRepository mrpRequirementRepository;
+
+    @Mock
+    private ProductionMaterialRequestItemRepository productionMaterialRequestItemRepository;
+
+    @Mock
+    private BatchRepository batchRepository;
 
     @Mock
     private ProcurementWorkflowService procurementWorkflowService;
@@ -147,6 +174,71 @@ class ProcurementControllerTest {
 
         assertEquals(200, response.getStatusCodeValue());
         verify(productRepository).save(argThat(product -> product.getSku() != null && !product.getSku().isBlank()));
+    }
+
+    @Test
+    void updateRawMaterialKeepsExistingSkuAndUpdatesFields() {
+        Product existing = new Product();
+        existing.setId(3L);
+        existing.setSku("RM-003");
+        existing.setName("旧钢板");
+        existing.setProductType("RAW_MATERIAL");
+
+        ProcurementController.RawMaterialRequest request = new ProcurementController.RawMaterialRequest();
+        request.setSku("SHOULD-NOT-CHANGE");
+        request.setName("新钢板");
+        request.setMaterialCategory("钢材");
+        request.setUnit("kg");
+        request.setUnitPrice(9.8);
+        request.setSafetyStock(88.0);
+        request.setLeadTimeDays(6);
+
+        when(productRepository.findById(3L)).thenReturn(Optional.of(existing));
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ResponseEntity<Product> response = procurementController.updateRawMaterial(3L, request, null);
+
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals("RM-003", response.getBody().getSku());
+        assertEquals("新钢板", response.getBody().getName());
+        assertEquals("RAW_MATERIAL", response.getBody().getProductType());
+        assertEquals(88.0, response.getBody().getSafetyStock());
+    }
+
+    @Test
+    void deleteRawMaterialRejectsReferencedMaterial() {
+        Product existing = new Product();
+        existing.setId(4L);
+        existing.setSku("RM-004");
+        existing.setName("被引用原材料");
+        existing.setProductType("RAW_MATERIAL");
+
+        when(productRepository.findById(4L)).thenReturn(Optional.of(existing));
+        when(purchaseRequestRepository.existsByProductId(4L)).thenReturn(true);
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> procurementController.deleteRawMaterial(4L, null));
+
+        assertEquals(409, exception.getStatus().value());
+        assertTrue(String.valueOf(exception.getReason()).contains("采购申请"));
+        verify(productRepository, never()).delete(any(Product.class));
+    }
+
+    @Test
+    void deleteRawMaterialDeletesWhenUnreferenced() {
+        Product existing = new Product();
+        existing.setId(5L);
+        existing.setSku("RM-005");
+        existing.setName("可删除原材料");
+        existing.setProductType("RAW_MATERIAL");
+
+        when(productRepository.findById(5L)).thenReturn(Optional.of(existing));
+
+        ResponseEntity<Void> response = procurementController.deleteRawMaterial(5L, null);
+
+        assertEquals(204, response.getStatusCodeValue());
+        verify(productRepository).delete(existing);
     }
 
     @Test
@@ -324,6 +416,84 @@ class ProcurementControllerTest {
         verify(productRepository).save(captor.capture());
         assertEquals("供应商甲", captor.getValue().getPreferredSupplier());
         assertFalse(captor.getValue().getSku().isBlank());
+    }
+
+    @Test
+    void updateRawMaterialForSupplierBindsPreferredSupplierAutomatically() {
+        Product existing = new Product();
+        existing.setId(13L);
+        existing.setSku("RM-013");
+        existing.setName("原供应商钢板");
+        existing.setProductType("RAW_MATERIAL");
+        existing.setPreferredSupplier("旧供应商");
+
+        ProcurementController.RawMaterialRequest request = new ProcurementController.RawMaterialRequest();
+        request.setName("供应商更新后的钢板");
+        request.setPreferredSupplier("尝试改成别的供应商");
+        request.setUnitPrice(6.8);
+
+        User supplier = supplierUser(13L, "supplier13", "供应商甲", "supplier@example.com");
+
+        when(authentication.getName()).thenReturn("supplier@example.com");
+        doReturn(List.of(new SimpleGrantedAuthority("ROLE_SUPPLIER"))).when(authentication).getAuthorities();
+        when(procurementWorkflowService.resolveSupplierAccount("supplier@example.com")).thenReturn(supplier);
+        when(productRepository.findById(13L)).thenReturn(Optional.of(existing));
+        when(procurementWorkflowService.isSupplierRelatedMaterial(existing, supplier)).thenReturn(true);
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ResponseEntity<Product> response = procurementController.updateRawMaterial(13L, request, authentication);
+
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals("RM-013", response.getBody().getSku());
+        assertEquals("供应商更新后的钢板", response.getBody().getName());
+        assertEquals("供应商甲", response.getBody().getPreferredSupplier());
+        assertEquals(6.8, response.getBody().getUnitPrice());
+    }
+
+    @Test
+    void createRawMaterialForProcurementManagerKeepsProvidedPreferredSupplier() {
+        ProcurementController.RawMaterialRequest request = new ProcurementController.RawMaterialRequest();
+        request.setName("采购管理员新增钢板");
+        request.setPreferredSupplier("华东钢材供应商");
+
+        doReturn(List.of(new SimpleGrantedAuthority("ROLE_PROCUREMENT_MANAGER"))).when(authentication).getAuthorities();
+        when(productRepository.findBySkuIgnoreCase(any())).thenReturn(Optional.empty());
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ResponseEntity<Product> response = procurementController.createRawMaterial(request, authentication);
+
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals("华东钢材供应商", response.getBody().getPreferredSupplier());
+        assertEquals("RAW_MATERIAL", response.getBody().getProductType());
+    }
+
+    @Test
+    void updateRawMaterialForProcurementManagerKeepsExistingSku() {
+        Product existing = new Product();
+        existing.setId(12L);
+        existing.setSku("RM-012");
+        existing.setName("旧原材料");
+        existing.setProductType("RAW_MATERIAL");
+
+        ProcurementController.RawMaterialRequest request = new ProcurementController.RawMaterialRequest();
+        request.setName("采购管理员更新后的原材料");
+        request.setPreferredSupplier("核心供应商");
+        request.setSafetyStock(120.0);
+
+        doReturn(List.of(new SimpleGrantedAuthority("ROLE_PROCUREMENT_MANAGER"))).when(authentication).getAuthorities();
+        when(productRepository.findById(12L)).thenReturn(Optional.of(existing));
+        when(productRepository.save(any(Product.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ResponseEntity<Product> response = procurementController.updateRawMaterial(12L, request, authentication);
+
+        assertEquals(200, response.getStatusCodeValue());
+        assertNotNull(response.getBody());
+        assertEquals("RM-012", response.getBody().getSku());
+        assertEquals("采购管理员更新后的原材料", response.getBody().getName());
+        assertEquals("核心供应商", response.getBody().getPreferredSupplier());
+        assertEquals(120.0, response.getBody().getSafetyStock());
     }
 
     @Test

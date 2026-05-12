@@ -6,5 +6,6 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public interface MrpRequirementRepository extends JpaRepository<MrpRequirement, Long> {
+	boolean existsByProductId(Long productId);
 }
 

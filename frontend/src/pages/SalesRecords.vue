@@ -3,8 +3,7 @@
     <section class="panel-surface overflow-hidden">
       <div class="panel-header flex items-center justify-between gap-4">
         <div>
-          <h3 class="text-base font-bold text-white">销售记录</h3>
-          <p class="mt-1 text-xs text-slate-400">销售管理员仅查看自己的销售记录；下方柱状图固定统计上一个周的全员销售明细，按产品名称展示销量分布。</p>
+          <h3 class="text-base font-bold text-black">销售记录</h3>
         </div>
         <div class="flex items-center gap-2">
           <input v-model="filter.startDate" type="date" class="neo-input !py-2" />
@@ -15,7 +14,7 @@
       </div>
       <div class="p-5">
         <div v-if="error" class="mb-3 text-sm text-rose-300">{{ error }}</div>
-        <div v-if="records.length === 0" class="text-sm text-cyan-100/70">暂无销售记录。</div>
+        <div v-if="records.length === 0" class="text-sm text-black">暂无销售记录。</div>
         <table v-else class="neo-table">
           <thead>
             <tr>

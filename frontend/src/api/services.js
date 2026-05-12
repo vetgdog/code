@@ -78,6 +78,8 @@ export const procurementApi = {
   listRawMaterials: (params = {}) => client.get('/procurement/raw-materials', { params }),
   getRawMaterial: (id) => client.get(`/procurement/raw-materials/${id}`),
   createRawMaterial: (payload) => client.post('/procurement/raw-materials', payload),
+  updateRawMaterial: (id, payload) => client.put(`/procurement/raw-materials/${id}`, payload),
+  deleteRawMaterial: (id) => client.delete(`/procurement/raw-materials/${id}`),
   downloadRawMaterialTemplate: () => client.get('/procurement/raw-materials/template', { responseType: 'blob' }),
   importRawMaterials: (formData) => client.post('/procurement/raw-materials/import', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }

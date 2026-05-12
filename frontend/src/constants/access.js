@@ -61,7 +61,7 @@ const ROLE_CONFIG = {
   ROLE_PROCUREMENT_MANAGER: {
     defaultRouteName: 'Procurement',
     routeNames: ['Dashboard', 'Procurement', 'RawMaterials', 'ProcurementPlan', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'procurement:notify-warehouse', 'procurement:plan:view']
+    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'procurement:notify-warehouse', 'procurement:plan:view', 'procurement:raw-material-manage']
   },
   ROLE_PRODUCTION_MANAGER: {
     defaultRouteName: 'Production',
@@ -71,7 +71,7 @@ const ROLE_CONFIG = {
   ROLE_WAREHOUSE_MANAGER: {
     defaultRouteName: 'Inventory',
     routeNames: ['Dashboard', 'Inventory', 'InventoryAlert', 'Orders', 'RawMaterials', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'inventory:view', 'inventory:alerts', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check']
+    permissions: ['dashboard:view', 'inventory:view', 'inventory:alerts', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check', 'procurement:raw-material-manage']
   },
   ROLE_QUALITY_INSPECTOR: {
     defaultRouteName: 'Quality',

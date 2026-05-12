@@ -115,6 +115,7 @@
               <th class="pb-2">单价</th>
               <th class="pb-2">首选供应商</th>
               <th class="pb-2">创建时间</th>
+              <th v-if="canManageRawMaterials" class="pb-2">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -132,6 +133,9 @@
               <td class="py-3">¥{{ formatAmount(material.unitPrice) }}</td>
               <td class="py-3">{{ material.preferredSupplier || '-' }}</td>
               <td class="py-3">{{ formatDate(material.createdAt) }}</td>
+              <td v-if="canManageRawMaterials" class="py-3">
+                <button class="text-xs text-primary font-semibold" @click.stop="prepareEditRawMaterial(material)">编辑</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -158,7 +162,58 @@
             <div class="md:col-span-2 xl:col-span-3"><span class="text-on-surface-variant">描述：</span>{{ selectedMaterial.description || '-' }}</div>
           </div>
         </div>
+
+        <div v-if="rawMaterialMessage" class="mt-4 text-sm text-emerald-600">{{ rawMaterialMessage }}</div>
+        <div v-if="rawMaterialCreateError" class="mt-4 text-sm text-rose-500">{{ rawMaterialCreateError }}</div>
       </div>
+    </section>
+
+    <section v-if="canManageRawMaterials" class="bg-white rounded-lg border border-outline-variant/10 p-5">
+      <h3 class="text-sm font-bold tracking-tight">{{ isSupplierRole ? '新增我的原材料' : '新增原材料' }}</h3>
+      <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" @submit.prevent="handleCreateRawMaterial">
+        <div class="rounded border border-dashed border-outline-variant/40 px-3 py-2 text-sm text-on-surface-variant bg-slate-50">原材料编号将由系统自动生成</div>
+        <input v-model="rawMaterialForm.name" placeholder="原材料名称" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <input v-model="rawMaterialForm.materialCategory" placeholder="原材料分类" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="rawMaterialForm.specification" placeholder="规格型号" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="rawMaterialForm.unit" placeholder="单位" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="rawMaterialForm.unitPrice" type="number" min="0" step="0.01" placeholder="默认单价" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="rawMaterialForm.preferredSupplier" :readonly="isSupplierRole" :class="isSupplierRole ? 'opacity-70' : ''" placeholder="首选供应商" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="rawMaterialForm.origin" placeholder="原产地" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="rawMaterialForm.safetyStock" type="number" min="0" step="0.01" placeholder="安全库存" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="rawMaterialForm.leadTimeDays" type="number" min="0" step="1" placeholder="供货周期（天）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <textarea v-model="rawMaterialForm.description" placeholder="描述说明" class="rounded border border-outline-variant/40 px-3 py-2 text-sm md:col-span-2 xl:col-span-3 min-h-28"></textarea>
+        <div class="md:col-span-2 xl:col-span-3 flex items-center gap-3">
+          <button class="rounded bg-primary text-white px-3 py-2 text-sm font-semibold">保存原材料</button>
+          <button type="button" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" @click="resetRawMaterialForm">清空</button>
+        </div>
+      </form>
+    </section>
+
+    <section v-if="canManageRawMaterials && editingRawMaterialId" class="bg-white rounded-lg border border-outline-variant/10 p-5">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h3 class="text-sm font-bold tracking-tight">编辑原材料</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">当前编辑：{{ currentEditingRawMaterial?.name || '-' }}（{{ currentEditingRawMaterial?.sku || '-' }}）</p>
+        </div>
+        <button type="button" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" @click="cancelRawMaterialEdit">取消编辑</button>
+      </div>
+      <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" @submit.prevent="handleUpdateRawMaterial">
+        <div class="rounded border border-dashed border-outline-variant/40 px-3 py-2 text-sm text-on-surface-variant bg-slate-50">原材料编号：{{ currentEditingRawMaterial?.sku || '-' }}</div>
+        <input v-model="editRawMaterialForm.name" placeholder="原材料名称" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <input v-model="editRawMaterialForm.materialCategory" placeholder="原材料分类" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="editRawMaterialForm.specification" placeholder="规格型号" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="editRawMaterialForm.unit" placeholder="单位" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="editRawMaterialForm.unitPrice" type="number" min="0" step="0.01" placeholder="默认单价" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="editRawMaterialForm.preferredSupplier" :readonly="isSupplierRole" :class="isSupplierRole ? 'opacity-70' : ''" placeholder="首选供应商" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model="editRawMaterialForm.origin" placeholder="原产地" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="editRawMaterialForm.safetyStock" type="number" min="0" step="0.01" placeholder="安全库存" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <input v-model.number="editRawMaterialForm.leadTimeDays" type="number" min="0" step="1" placeholder="供货周期（天）" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
+        <textarea v-model="editRawMaterialForm.description" placeholder="描述说明" class="rounded border border-outline-variant/40 px-3 py-2 text-sm md:col-span-2 xl:col-span-3 min-h-28"></textarea>
+        <div class="md:col-span-2 xl:col-span-3 flex items-center gap-3">
+          <button class="rounded bg-primary text-white px-3 py-2 text-sm font-semibold">保存修改</button>
+          <button type="button" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" @click="cancelRawMaterialEdit">取消</button>
+        </div>
+      </form>
     </section>
 
 
@@ -376,6 +431,7 @@ const rawMaterialEmptyText = computed(() => (isSupplierRole.value ? '当前没�
 const purchaseOrderEmptyText = computed(() => (isSupplierRole.value ? '当前没有供应记录。' : '当前没有采购记录。'));
 const showRawMaterialError = computed(() => Boolean(rawMaterialError.value) && !isSupplierRole.value);
 const showPurchaseError = computed(() => Boolean(purchaseError.value) && !isSupplierRole.value);
+const currentEditingRawMaterial = computed(() => rawMaterials.value.find((item) => item.id === editingRawMaterialId.value) || null);
 
 const templateColumns = [
   { name: 'sku', label: '选填，留空时由系统自动生成原材料编号；如需按编号更新原材料，可填写已有编号' },
@@ -403,6 +459,7 @@ const purchaseStatuses = [
 const rawMaterials = ref([]);
 const rawMaterialError = ref('');
 const selectedMaterial = ref(null);
+const editingRawMaterialId = ref(null);
 const suppliers = ref([]);
 const purchaseOrders = ref([]);
 const purchaseError = ref('');
@@ -425,6 +482,19 @@ const rawMaterialFilter = reactive({ keyword: '', startDate: '', endDate: '' });
 const orderFilter = reactive({ keyword: '', status: '', startDate: '', endDate: '' });
 
 const rawMaterialForm = reactive({
+  name: '',
+  materialCategory: '',
+  specification: '',
+  unit: '',
+  unitPrice: null,
+  preferredSupplier: '',
+  origin: '',
+  safetyStock: null,
+  leadTimeDays: null,
+  description: ''
+});
+
+const editRawMaterialForm = reactive({
   name: '',
   materialCategory: '',
   specification: '',
@@ -530,6 +600,9 @@ const loadRawMaterials = async () => {
     rawMaterials.value = response.data || [];
     if (selectedMaterial.value && !rawMaterials.value.some((item) => item.id === selectedMaterial.value.id)) {
       selectedMaterial.value = null;
+    }
+    if (editingRawMaterialId.value && !rawMaterials.value.some((item) => item.id === editingRawMaterialId.value)) {
+      cancelRawMaterialEdit();
     }
     if (!selectedMaterial.value && rawMaterials.value.length) {
       await selectRawMaterial(rawMaterials.value[0].id);
@@ -639,16 +712,43 @@ const resetOrderFilter = async () => {
 };
 
 const resetRawMaterialForm = () => {
-  rawMaterialForm.name = '';
-  rawMaterialForm.materialCategory = '';
-  rawMaterialForm.specification = '';
-  rawMaterialForm.unit = '';
-  rawMaterialForm.unitPrice = null;
-  rawMaterialForm.preferredSupplier = '';
-  rawMaterialForm.origin = '';
-  rawMaterialForm.safetyStock = null;
-  rawMaterialForm.leadTimeDays = null;
-  rawMaterialForm.description = '';
+  assignRawMaterialForm(rawMaterialForm);
+};
+
+const assignRawMaterialForm = (target, material = {}) => {
+  target.name = material.name || '';
+  target.materialCategory = material.materialCategory || '';
+  target.specification = material.specification || '';
+  target.unit = material.unit || '';
+  target.unitPrice = material.unitPrice == null ? null : Number(material.unitPrice);
+  target.preferredSupplier = material.preferredSupplier || '';
+  target.origin = material.origin || '';
+  target.safetyStock = material.safetyStock == null ? null : Number(material.safetyStock);
+  target.leadTimeDays = material.leadTimeDays == null ? null : Number(material.leadTimeDays);
+  target.description = material.description || '';
+};
+
+const mapRawMaterialPayload = (source) => ({
+  name: source.name,
+  materialCategory: source.materialCategory || null,
+  specification: source.specification || null,
+  unit: source.unit || null,
+  unitPrice: source.unitPrice == null ? 0 : Number(source.unitPrice),
+  preferredSupplier: source.preferredSupplier || null,
+  origin: source.origin || null,
+  safetyStock: source.safetyStock == null ? 0 : Number(source.safetyStock),
+  leadTimeDays: source.leadTimeDays == null ? 0 : Number(source.leadTimeDays),
+  description: source.description || null
+});
+
+const prepareEditRawMaterial = (material) => {
+  editingRawMaterialId.value = material?.id || null;
+  assignRawMaterialForm(editRawMaterialForm, material);
+};
+
+const cancelRawMaterialEdit = () => {
+  editingRawMaterialId.value = null;
+  assignRawMaterialForm(editRawMaterialForm);
 };
 
 const resetOrderForm = () => {
@@ -731,26 +831,33 @@ const handleCreateRawMaterial = async () => {
   rawMaterialMessage.value = '';
   rawMaterialCreateError.value = '';
   try {
-    const response = await procurementApi.createRawMaterial({
-      name: rawMaterialForm.name,
-      materialCategory: rawMaterialForm.materialCategory || null,
-      specification: rawMaterialForm.specification || null,
-      unit: rawMaterialForm.unit || null,
-      unitPrice: rawMaterialForm.unitPrice == null ? 0 : Number(rawMaterialForm.unitPrice),
-      preferredSupplier: rawMaterialForm.preferredSupplier || null,
-      origin: rawMaterialForm.origin || null,
-      safetyStock: rawMaterialForm.safetyStock == null ? 0 : Number(rawMaterialForm.safetyStock),
-      leadTimeDays: rawMaterialForm.leadTimeDays == null ? 0 : Number(rawMaterialForm.leadTimeDays),
-      description: rawMaterialForm.description || null
-    });
+    const response = await procurementApi.createRawMaterial(mapRawMaterialPayload(rawMaterialForm));
     rawMaterialMessage.value = '原材料保存成功。';
     resetRawMaterialForm();
-    await Promise.all([loadRawMaterials(), loadSuppliers()]);
+    await Promise.all([loadRawMaterials(), loadSuppliers(), loadDashboard()]);
     if (response?.data?.id) {
       await selectRawMaterial(response.data.id);
     }
   } catch (error) {
-    rawMaterialCreateError.value = '原材料保存失败。';
+    rawMaterialCreateError.value = error?.response?.data?.message || error?.response?.data || '原材料保存失败。';
+  }
+};
+
+const handleUpdateRawMaterial = async () => {
+  if (!editingRawMaterialId.value) {
+    return;
+  }
+  rawMaterialMessage.value = '';
+  rawMaterialCreateError.value = '';
+  try {
+    await procurementApi.updateRawMaterial(editingRawMaterialId.value, mapRawMaterialPayload(editRawMaterialForm));
+    rawMaterialMessage.value = '原材料更新成功。';
+    const currentId = editingRawMaterialId.value;
+    cancelRawMaterialEdit();
+    await Promise.all([loadRawMaterials(), loadSuppliers(), loadDashboard()]);
+    await selectRawMaterial(currentId);
+  } catch (error) {
+    rawMaterialCreateError.value = error?.response?.data?.message || error?.response?.data || '原材料更新失败。';
   }
 };
 

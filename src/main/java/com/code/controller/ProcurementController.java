@@ -7,8 +7,14 @@ import com.code.entity.Product;
 import com.code.entity.PurchaseOrder;
 import com.code.entity.PurchaseRequest;
 import com.code.entity.User;
+import com.code.repository.BatchRepository;
+import com.code.repository.InventoryItemRepository;
+import com.code.repository.MrpRequirementRepository;
 import com.code.repository.ProductRepository;
+import com.code.repository.ProductionMaterialRequestItemRepository;
+import com.code.repository.PurchaseOrderItemRepository;
 import com.code.repository.PurchaseRequestRepository;
+import com.code.repository.StockTransactionRepository;
 import com.code.service.ProcurementWorkflowService;
 import com.code.service.WeeklyPlanningService;
 import com.code.util.CsvExportUtils;
@@ -54,6 +60,24 @@ public class ProcurementController {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private PurchaseOrderItemRepository purchaseOrderItemRepository;
+
+    @Autowired
+    private InventoryItemRepository inventoryItemRepository;
+
+    @Autowired
+    private StockTransactionRepository stockTransactionRepository;
+
+    @Autowired
+    private MrpRequirementRepository mrpRequirementRepository;
+
+    @Autowired
+    private ProductionMaterialRequestItemRepository productionMaterialRequestItemRepository;
+
+    @Autowired
+    private BatchRepository batchRepository;
 
     @Autowired
     private ProcurementWorkflowService procurementWorkflowService;
@@ -334,14 +358,36 @@ public class ProcurementController {
     }
 
     @PostMapping("/raw-materials")
-    @PreAuthorize("hasAnyRole('SUPPLIER','ADMIN')")
-    public ResponseEntity<?> createRawMaterial(@RequestBody RawMaterialRequest request, Authentication authentication) {
+    @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')")
+    public ResponseEntity<Product> createRawMaterial(@RequestBody RawMaterialRequest request, Authentication authentication) {
         assignRawMaterialSku(request);
         validateRawMaterialRequest(request);
         applySupplierScope(request, authentication);
         Product material = buildRawMaterial(new Product(), request);
         Product saved = productRepository.save(material);
         return ResponseEntity.ok(saved);
+    }
+
+    @PutMapping("/raw-materials/{id}")
+    @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')")
+    public ResponseEntity<Product> updateRawMaterial(@PathVariable Long id,
+                                                     @RequestBody RawMaterialRequest request,
+                                                     Authentication authentication) {
+        Product existing = findAccessibleRawMaterial(id, authentication);
+        request.setSku(existing.getSku());
+        validateRawMaterialRequest(request);
+        applySupplierScope(request, authentication);
+        Product saved = productRepository.save(buildRawMaterial(existing, request));
+        return ResponseEntity.ok(saved);
+    }
+
+    @DeleteMapping("/raw-materials/{id}")
+    @PreAuthorize("hasAnyRole('SUPPLIER','WAREHOUSE_MANAGER','ADMIN')")
+    public ResponseEntity<Void> deleteRawMaterial(@PathVariable Long id, Authentication authentication) {
+        Product existing = findAccessibleRawMaterial(id, authentication);
+        assertRawMaterialCanBeDeleted(existing);
+        productRepository.delete(existing);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/raw-materials/template")
@@ -447,6 +493,47 @@ public class ProcurementController {
         target.setSafetyStock(request.getSafetyStock() == null ? 0.0 : request.getSafetyStock());
         target.setLeadTimeDays(request.getLeadTimeDays() == null ? 0 : request.getLeadTimeDays());
         return target;
+    }
+
+    private Product findAccessibleRawMaterial(Long id, Authentication authentication) {
+        Product product = productRepository.findById(id)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在: " + id));
+        if (!isRawMaterial(product)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在: " + id);
+        }
+        User currentSupplier = resolveCurrentSupplier(authentication);
+        if (currentSupplier != null && !procurementWorkflowService.isSupplierRelatedMaterial(product, currentSupplier)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在: " + id);
+        }
+        return product;
+    }
+
+    private void assertRawMaterialCanBeDeleted(Product product) {
+        if (product == null || product.getId() == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在");
+        }
+        Long productId = product.getId();
+        if (purchaseRequestRepository.existsByProductId(productId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已关联采购申请，无法删除");
+        }
+        if (purchaseOrderItemRepository.existsByProductId(productId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已关联采购订单，无法删除");
+        }
+        if (inventoryItemRepository.existsByProductId(productId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已存在库存记录，无法删除");
+        }
+        if (stockTransactionRepository.existsByProductId(productId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已存在库存流水，无法删除");
+        }
+        if (mrpRequirementRepository.existsByProductId(productId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已关联物料需求计划，无法删除");
+        }
+        if (productionMaterialRequestItemRepository.existsByMaterialProductId(productId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已关联领料申请，无法删除");
+        }
+        if (batchRepository.existsByProductId(productId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已关联批次记录，无法删除");
+        }
     }
 
     private void applySupplierScope(RawMaterialRequest request, Authentication authentication) {
