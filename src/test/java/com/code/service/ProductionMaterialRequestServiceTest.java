@@ -4,6 +4,7 @@ import com.code.entity.InventoryItem;
 import com.code.entity.OrderItem;
 import com.code.entity.Product;
 import com.code.entity.ProductionMaterialRequest;
+import com.code.entity.ProductionPlan;
 import com.code.entity.PurchaseRequest;
 import com.code.entity.Role;
 import com.code.entity.SalesOrder;
@@ -12,15 +13,14 @@ import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.ProductionMaterialRequestRepository;
+import com.code.repository.ProductionPlanRepository;
 import com.code.repository.PurchaseRequestRepository;
 import com.code.repository.SalesOrderRepository;
 import com.code.repository.StockTransactionRepository;
 import com.code.repository.UserRepository;
-import com.code.repository.WarehouseRepository;
 import com.code.websocket.NotificationService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -47,11 +47,11 @@ class ProductionMaterialRequestServiceTest {
     @Mock
     private SalesOrderRepository salesOrderRepository;
     @Mock
+    private ProductionPlanRepository productionPlanRepository;
+    @Mock
     private ProductRepository productRepository;
     @Mock
     private InventoryItemRepository inventoryItemRepository;
-    @Mock
-    private WarehouseRepository warehouseRepository;
     @Mock
     private StockTransactionRepository stockTransactionRepository;
     @Mock
@@ -79,6 +79,7 @@ class ProductionMaterialRequestServiceTest {
 
         ProductionMaterialRequest result = productionMaterialRequestService.createRequest(
                 1L,
+                null,
                 List.of(new ProductionMaterialRequestService.MaterialItemCommand(201L, 12.0)),
                 "优先备料",
                 "prod@test.com"
@@ -179,6 +180,7 @@ class ProductionMaterialRequestServiceTest {
 
         ProductionMaterialRequest result = productionMaterialRequestService.createRequest(
                 4L,
+                null,
                 List.of(
                         new ProductionMaterialRequestService.MaterialItemCommand(204L, 6.0),
                         new ProductionMaterialRequestService.MaterialItemCommand(205L, 2.5)
@@ -190,6 +192,48 @@ class ProductionMaterialRequestServiceTest {
         assertEquals(2, result.getItems().size());
         assertTrue(result.getItems().stream().anyMatch(item -> "冷轧钢板".equals(item.getMaterialProduct().getName())));
         assertTrue(result.getItems().stream().anyMatch(item -> "镀锌板".equals(item.getMaterialProduct().getName())));
+    }
+
+    @Test
+    void createRequestShouldSupportInventoryAlertPlanSource() {
+        Product finished = new Product();
+        finished.setId(301L);
+        finished.setSku("FG-ALERT-301");
+        finished.setName("库存预警补产成品");
+        finished.setProductType("FINISHED_GOOD");
+
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(31L);
+        plan.setPlanNo("PLAN-ALERT-301-202605130001");
+        plan.setProduct(finished);
+        plan.setStatus("PLANNED");
+
+        User productionManager = user(33L, "prod@test.com", "生产管理员丙", "ROLE_PRODUCTION_MANAGER");
+        Product raw = rawMaterial(206L, "RM-206", "铜线");
+
+        when(productionPlanRepository.findById(31L)).thenReturn(Optional.of(plan));
+        when(requestRepository.findByProductionPlanIdOrderByCreatedAtDesc(31L)).thenReturn(List.of());
+        when(userRepository.findByEmailIgnoreCase("prod@test.com")).thenReturn(Optional.of(productionManager));
+        when(productRepository.findById(206L)).thenReturn(Optional.of(raw));
+        when(requestRepository.save(any(ProductionMaterialRequest.class))).thenAnswer(invocation -> {
+            ProductionMaterialRequest saved = invocation.getArgument(0);
+            saved.setId(98L);
+            return saved;
+        });
+
+        ProductionMaterialRequest result = productionMaterialRequestService.createRequest(
+                null,
+                31L,
+                List.of(new ProductionMaterialRequestService.MaterialItemCommand(206L, 3.5)),
+                "库存预警补产先领料",
+                "prod@test.com"
+        );
+
+        assertEquals(98L, result.getId());
+        assertEquals("PLAN-ALERT-301-202605130001", result.getProductionPlan().getPlanNo());
+        assertEquals("库存预警补产成品", result.getFinishedProduct().getName());
+        assertEquals(ProductionMaterialRequestService.STATUS_PENDING_WAREHOUSE_REVIEW, result.getStatus());
+        verify(notificationService).broadcast(eq("/topic/orders/warehouse"), any());
     }
 
     private SalesOrder buildProductionOrder(Long id, Long productId, String orderNo) {

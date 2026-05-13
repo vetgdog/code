@@ -7,6 +7,7 @@ import com.code.entity.ProductionTask;
 import com.code.entity.ProductionWeeklyPlan;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.ProductionTaskRepository;
+import com.code.service.OrderWorkflowService;
 import com.code.service.ProductionMaterialRequestService;
 import com.code.service.QualityService;
 import com.code.service.WeeklyPlanningService;
@@ -58,6 +59,9 @@ public class ProductionController {
     @Autowired
     private ProductionMaterialRequestService productionMaterialRequestService;
 
+    @Autowired
+    private OrderWorkflowService orderWorkflowService;
+
     @PostMapping("/tasks")
     /*
      * 创建生产任务。
@@ -99,6 +103,56 @@ public class ProductionController {
         return queryRecords(startDate, endDate, keyword, authentication, false);
     }
 
+    @GetMapping("/plans/active")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    /*
+     * 查询待执行生产计划。
+     *
+     * <p>这里返回的是“尚未完工/未入库”的生产计划单，既包括订单缺货触发的生产计划，
+     * 也包括仓库库存预警一键补产生成的计划。之所以单独开放该查询，是因为这类计划在当前系统中
+     * 还不等同于销售订单，但生产管理员仍需要一个清晰入口看到新增待办。</p>
+     */
+    public List<ActiveProductionPlanView> listActivePlans() {
+        return productionPlanRepository.findAll().stream()
+                .filter(plan -> !isProductionRecord(plan.getStatus()))
+                .sorted(Comparator.comparing(ProductionPlan::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(ProductionPlan::getId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .map(this::toActivePlanView)
+                .collect(Collectors.toList());
+    }
+
+    @GetMapping("/plans/pending-stock-in")
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    public List<ActiveProductionPlanView> listPendingInventoryAlertStockInPlans() {
+        return orderWorkflowService.listInventoryAlertPlansPendingStockIn().stream()
+                .map(this::toActivePlanView)
+                .collect(Collectors.toList());
+    }
+
+    @PostMapping("/plans/{planId}/complete")
+    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    public ProductionPlan completeInventoryAlertPlan(@PathVariable Long planId,
+                                                     @RequestBody(required = false) PlanActionCommand request,
+                                                     Authentication authentication) {
+        return orderWorkflowService.completeInventoryAlertPlan(
+                planId,
+                authentication == null ? "" : authentication.getName(),
+                request == null ? "" : request.getNote()
+        );
+    }
+
+    @PostMapping("/plans/{planId}/warehouse-stock-in")
+    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    public ProductionPlan confirmInventoryAlertPlanStockIn(@PathVariable Long planId,
+                                                           @RequestBody(required = false) WarehouseReviewCommand request,
+                                                           Authentication authentication) {
+        return orderWorkflowService.confirmInventoryAlertPlanStockIn(
+                planId,
+                authentication == null ? "" : authentication.getName(),
+                request == null ? "" : request.getNote()
+        );
+    }
+
     @GetMapping("/material-requests")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','WAREHOUSE_MANAGER','PROCUREMENT_MANAGER','ADMIN')")
     /*
@@ -111,13 +165,14 @@ public class ProductionController {
      * 因此授权范围覆盖多个岗位。</p>
      */
     public List<ProductionMaterialRequest> listMaterialRequests(@RequestParam(required = false) Long orderId,
+                                                                @RequestParam(required = false) Long planId,
                                                                 @RequestParam(required = false) String status,
                                                                 Authentication authentication) {
         String role = authentication == null || authentication.getAuthorities() == null
                 ? ""
                 : authentication.getAuthorities().stream().findFirst().map(authority -> authority == null ? "" : authority.getAuthority()).orElse("");
         String email = authentication == null ? "" : authentication.getName();
-        return productionMaterialRequestService.listRequests(role, email, orderId, status);
+        return productionMaterialRequestService.listRequests(role, email, orderId, planId, status);
     }
 
     @PostMapping("/material-requests")
@@ -137,6 +192,7 @@ public class ProductionController {
                 .collect(Collectors.toList());
         return productionMaterialRequestService.createRequest(
                 request == null ? null : request.getOrderId(),
+                request == null ? null : request.getPlanId(),
                 items,
                 request == null ? "" : request.getNote(),
                 authentication == null ? "" : authentication.getName()
@@ -305,6 +361,25 @@ public class ProductionController {
         );
     }
 
+    private ActiveProductionPlanView toActivePlanView(ProductionPlan plan) {
+        boolean inventoryAlertPlan = isInventoryAlertPlan(plan);
+        return new ActiveProductionPlanView(
+                plan.getId(),
+                plan.getPlanNo(),
+                inventoryAlertPlan ? "库存预警补产" : "订单缺货补产",
+                inventoryAlertPlan ? "" : resolveOrderNo(plan.getPlanNo()),
+                plan.getProduct() == null ? null : plan.getProduct().getSku(),
+                plan.getProduct() == null ? null : plan.getProduct().getName(),
+                plan.getPlannedQuantity(),
+                plan.getStatus(),
+                plan.getCreatedBy(),
+                plan.getCreatedByName(),
+                plan.getStartDate(),
+                plan.getEndDate(),
+                plan.getCreatedAt()
+        );
+    }
+
     private ProductionQualityAlertView toQualityAlertView(Batch batch) {
         return new ProductionQualityAlertView(
                 batch.getId(),
@@ -340,6 +415,9 @@ public class ProductionController {
         if (planNo == null || !planNo.startsWith("PLAN-")) {
             return "";
         }
+        if (planNo.startsWith("PLAN-ALERT-")) {
+            return "";
+        }
         String remaining = planNo.substring("PLAN-".length());
         int lastSeparator = remaining.lastIndexOf('-');
         if (lastSeparator <= 0) {
@@ -351,6 +429,10 @@ public class ProductionController {
             return withoutTimestamp;
         }
         return withoutTimestamp.substring(0, productSeparator);
+    }
+
+    private boolean isInventoryAlertPlan(ProductionPlan plan) {
+        return plan != null && plan.getPlanNo() != null && plan.getPlanNo().startsWith("PLAN-ALERT-");
     }
 
     private boolean matchesKeyword(ProductionRecordView record, String keyword) {
@@ -505,6 +587,64 @@ public class ProductionController {
         }
     }
 
+    public static class ActiveProductionPlanView {
+        private final Long id;
+        private final String planNo;
+        private final String sourceType;
+        private final String orderNo;
+        private final String productSku;
+        private final String productName;
+        private final Double plannedQuantity;
+        private final String status;
+        private final Long createdBy;
+        private final String createdByName;
+        private final LocalDateTime startDate;
+        private final LocalDateTime endDate;
+        private final LocalDateTime createdAt;
+
+        public ActiveProductionPlanView(Long id,
+                                        String planNo,
+                                        String sourceType,
+                                        String orderNo,
+                                        String productSku,
+                                        String productName,
+                                        Double plannedQuantity,
+                                        String status,
+                                        Long createdBy,
+                                        String createdByName,
+                                        LocalDateTime startDate,
+                                        LocalDateTime endDate,
+                                        LocalDateTime createdAt) {
+            this.id = id;
+            this.planNo = planNo;
+            this.sourceType = sourceType;
+            this.orderNo = orderNo;
+            this.productSku = productSku;
+            this.productName = productName;
+            this.plannedQuantity = plannedQuantity;
+            this.status = status;
+            this.createdBy = createdBy;
+            this.createdByName = createdByName;
+            this.startDate = startDate;
+            this.endDate = endDate;
+            this.createdAt = createdAt;
+        }
+
+        public Long getId() { return id; }
+        public String getPlanNo() { return planNo; }
+        public String getSourceType() { return sourceType; }
+        public String getOrderNo() { return orderNo; }
+        public String getProductSku() { return productSku; }
+        public String getProductName() { return productName; }
+        public Double getPlannedQuantity() { return plannedQuantity; }
+        public String getStatus() { return status; }
+        public Long getCreatedBy() { return createdBy; }
+        public String getCreatedByName() { return createdByName; }
+        public LocalDateTime getStartDate() { return startDate; }
+        public LocalDateTime getEndDate() { return endDate; }
+        public LocalDateTime getCreatedAt() { return createdAt; }
+    }
+
     public static class ProductionQualityAlertView {
         private final Long id;
         private final String batchNo;
@@ -582,6 +722,7 @@ public class ProductionController {
 
     public static class MaterialRequestCommand {
         private Long orderId;
+        private Long planId;
         private String note;
         private List<MaterialItemCommand> items;
 
@@ -591,6 +732,14 @@ public class ProductionController {
 
         public void setOrderId(Long orderId) {
             this.orderId = orderId;
+        }
+
+        public Long getPlanId() {
+            return planId;
+        }
+
+        public void setPlanId(Long planId) {
+            this.planId = planId;
         }
 
         public String getNote() {
@@ -607,6 +756,18 @@ public class ProductionController {
 
         public void setItems(List<MaterialItemCommand> items) {
             this.items = items;
+        }
+    }
+
+    public static class PlanActionCommand {
+        private String note;
+
+        public String getNote() {
+            return note;
+        }
+
+        public void setNote(String note) {
+            this.note = note;
         }
     }
 

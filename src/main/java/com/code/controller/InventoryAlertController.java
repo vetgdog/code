@@ -137,6 +137,10 @@ public class InventoryAlertController {
         User operator = requireCurrentUser(authentication);
         InventoryAlertItemView alert = buildAlert(product, true);
 
+        if (hasOpenAlertProductionPlan(product.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该成品已存在未完成的库存预警生产计划，请勿重复生成");
+        }
+
         // 允许前端覆盖推荐值，体现“系统建议 + 人工确认”的协同模式；
         // 若前端不传或传非法值，则回退到系统计算结果。
         double quantity = request == null || request.getQuantity() == null || request.getQuantity() <= 0
@@ -156,26 +160,15 @@ public class InventoryAlertController {
         plan.setCreatedBy(operator.getId());
         plan.setCreatedByName(resolveDisplayName(operator));
         ProductionPlan saved = productionPlanRepository.save(plan);
+        AlertNotificationPayload payload = buildProductionPlanNotificationPayload(saved, product, quantity, operator, request, alert);
 
-        // 同时广播到与生产相关的多个主题，原因是当前前端存在不同看板入口；
-        // 重复广播换来的是订阅端结构更简单，而不是要求所有页面都订阅同一个总主题后再自行过滤。
-        notificationService.broadcast(
-                "/topic/orders/production",
-                new NotificationMessage(
-                        "INVENTORY_ALERT_PRODUCTION_PLAN_CREATED",
-                        "ProductionPlan",
-                        saved.getId(),
-                        saved,
-                        LocalDateTime.now()
-                )
-        );
         notificationService.broadcast(
                 "/topic/production",
                 new NotificationMessage(
                         "INVENTORY_ALERT_PRODUCTION_PLAN_CREATED",
                         "ProductionPlan",
                         saved.getId(),
-                        saved,
+                        payload,
                         LocalDateTime.now()
                 )
         );
@@ -195,6 +188,10 @@ public class InventoryAlertController {
         Product product = requireProduct(productId, "RAW_MATERIAL");
         User operator = requireCurrentUser(authentication);
         InventoryAlertItemView alert = buildAlert(product, false);
+
+        if (hasOpenAlertPurchaseRequest(product.getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "该原材料已存在待处理的库存预警采购申请，请勿重复通知采购");
+        }
 
         // 与生产计划接口保持相同约定：优先用人工修正数量，缺失时自动回退推荐值。
         double quantity = request == null || request.getQuantity() == null || request.getQuantity() <= 0
@@ -219,6 +216,7 @@ public class InventoryAlertController {
                 ? "库存预警触发，建议采购数量：" + String.format(Locale.ROOT, "%.2f", quantity)
                 : request.getNote().trim());
         PurchaseRequest saved = purchaseRequestRepository.save(requestEntity);
+        AlertNotificationPayload payload = buildPurchaseRequestNotificationPayload(saved, product, quantity, operator, request, alert);
 
         notificationService.broadcast(
                 "/topic/procurement/manager",
@@ -226,21 +224,75 @@ public class InventoryAlertController {
                         "INVENTORY_ALERT_PURCHASE_REQUEST_CREATED",
                         "PurchaseRequest",
                         saved.getId(),
-                        saved,
-                        LocalDateTime.now()
-                )
-        );
-        notificationService.broadcast(
-                "/topic/procurement",
-                new NotificationMessage(
-                        "INVENTORY_ALERT_PURCHASE_REQUEST_CREATED",
-                        "PurchaseRequest",
-                        saved.getId(),
-                        saved,
+                        payload,
                         LocalDateTime.now()
                 )
         );
         return saved;
+    }
+
+    private boolean hasOpenAlertProductionPlan(Long productId) {
+        return productionPlanRepository.findAll().stream()
+                .filter(plan -> plan.getProduct() != null && productId.equals(plan.getProduct().getId()))
+                .filter(plan -> safe(plan.getPlanNo()).startsWith("PLAN-ALERT-"))
+                .map(ProductionPlan::getStatus)
+                .map(this::safe)
+                .map(value -> value.toUpperCase(Locale.ROOT))
+                .anyMatch(status -> !"DONE".equals(status) && !"WAREHOUSED".equals(status) && !"CANCELLED".equals(status));
+    }
+
+    private boolean hasOpenAlertPurchaseRequest(Long productId) {
+        return purchaseRequestRepository.findByStatusOrderByRequestDateDesc("OPEN").stream()
+                .filter(request -> request.getProduct() != null && productId.equals(request.getProduct().getId()))
+                .anyMatch(request -> safe(request.getRequestNo()).startsWith("PR-ALERT-"));
+    }
+
+    private AlertNotificationPayload buildProductionPlanNotificationPayload(ProductionPlan plan,
+                                                                            Product product,
+                                                                            double quantity,
+                                                                            User operator,
+                                                                            AlertActionRequest request,
+                                                                            InventoryAlertItemView alert) {
+        String title = "库存预警已生成补产计划：" + safe(product.getName()) + "（" + safe(product.getSku()) + "）";
+        String meta = "计划单号 " + safe(plan.getPlanNo())
+                + "，补产数量 " + String.format(Locale.ROOT, "%.2f", quantity)
+                + "，由仓库管理员 " + resolveDisplayName(operator)
+                + " 发起，可在生产页面查看新的待执行生产计划，并需先提交原材料申请后再生产。"
+                + appendOptionalNote(request == null ? "" : request.getNote())
+                + appendInventorySummary(alert);
+        return new AlertNotificationPayload(title, meta, plan, null, product, quantity, "库存预警补产", resolveDisplayName(operator));
+    }
+
+    private AlertNotificationPayload buildPurchaseRequestNotificationPayload(PurchaseRequest purchaseRequest,
+                                                                            Product product,
+                                                                            double quantity,
+                                                                            User operator,
+                                                                            AlertActionRequest request,
+                                                                            InventoryAlertItemView alert) {
+        String preferredSupplier = safe(product.getPreferredSupplier());
+        String title = "库存预警已生成采购申请：" + safe(product.getName()) + "（" + safe(product.getSku()) + "）";
+        String meta = "申请单号 " + safe(purchaseRequest.getRequestNo())
+                + "，建议补采 " + String.format(Locale.ROOT, "%.2f", quantity)
+                + "，由仓库管理员 " + resolveDisplayName(operator)
+                + " 发起，请采购管理员尽快处理。"
+                + (preferredSupplier.isEmpty() ? "" : " 首选供应商：" + preferredSupplier + "。")
+                + appendOptionalNote(request == null ? "" : request.getNote())
+                + appendInventorySummary(alert);
+        return new AlertNotificationPayload(title, meta, null, purchaseRequest, product, quantity, "库存预警补采", resolveDisplayName(operator));
+    }
+
+    private String appendOptionalNote(String note) {
+        return isBlank(note) ? "" : " 备注：" + note.trim() + "。";
+    }
+
+    private String appendInventorySummary(InventoryAlertItemView alert) {
+        if (alert == null) {
+            return "";
+        }
+        return " 当前可用库存 " + String.format(Locale.ROOT, "%.2f", safe(alert.getAvailableQuantity()))
+                + "，安全库存 " + String.format(Locale.ROOT, "%.2f", safe(alert.getSafetyStock()))
+                + "，缺口 " + String.format(Locale.ROOT, "%.2f", safe(alert.getShortageQuantity()))
+                + "。";
     }
 
     /**
@@ -513,6 +565,44 @@ public class InventoryAlertController {
         public void setQuantity(Double quantity) { this.quantity = quantity; }
         public String getNote() { return note; }
         public void setNote(String note) { this.note = note; }
+    }
+
+    public static class AlertNotificationPayload {
+        private final String notificationTitle;
+        private final String notificationMeta;
+        private final ProductionPlan productionPlan;
+        private final PurchaseRequest purchaseRequest;
+        private final Product product;
+        private final Double actionQuantity;
+        private final String actionType;
+        private final String operatorName;
+
+        public AlertNotificationPayload(String notificationTitle,
+                                        String notificationMeta,
+                                        ProductionPlan productionPlan,
+                                        PurchaseRequest purchaseRequest,
+                                        Product product,
+                                        Double actionQuantity,
+                                        String actionType,
+                                        String operatorName) {
+            this.notificationTitle = notificationTitle;
+            this.notificationMeta = notificationMeta;
+            this.productionPlan = productionPlan;
+            this.purchaseRequest = purchaseRequest;
+            this.product = product;
+            this.actionQuantity = actionQuantity;
+            this.actionType = actionType;
+            this.operatorName = operatorName;
+        }
+
+        public String getNotificationTitle() { return notificationTitle; }
+        public String getNotificationMeta() { return notificationMeta; }
+        public ProductionPlan getProductionPlan() { return productionPlan; }
+        public PurchaseRequest getPurchaseRequest() { return purchaseRequest; }
+        public Product getProduct() { return product; }
+        public Double getActionQuantity() { return actionQuantity; }
+        public String getActionType() { return actionType; }
+        public String getOperatorName() { return operatorName; }
     }
 }
 

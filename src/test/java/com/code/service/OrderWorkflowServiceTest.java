@@ -33,6 +33,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -236,6 +237,104 @@ class OrderWorkflowServiceTest {
         verify(notificationService).broadcast(eq("/topic/orders/sales"), any());
         verify(stockTransactionRepository).save(any());
         verify(productionMaterialRequestService).markWarehoused(6L);
+    }
+
+    @Test
+    void completeInventoryAlertPlanCreatesPendingQualityBatch() {
+        Product product = new Product();
+        product.setId(700L);
+        product.setName("预警补产成品");
+
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(70L);
+        plan.setPlanNo("PLAN-ALERT-700-202605130001");
+        plan.setProduct(product);
+        plan.setPlannedQuantity(6.0);
+        plan.setStatus("PLANNED");
+
+        User productionManager = new User();
+        productionManager.setId(17L);
+        productionManager.setEmail("prod@test.com");
+        productionManager.setFullName("生产管理员甲");
+
+        when(productionPlanRepository.findById(70L)).thenReturn(Optional.of(plan));
+        when(userRepository.findByEmailIgnoreCase("prod@test.com")).thenReturn(Optional.of(productionManager));
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(batchRepository.findBySourceOrderNoAndProductId(plan.getPlanNo(), 700L)).thenReturn(Optional.empty());
+        when(batchRepository.save(any(Batch.class))).thenAnswer(invocation -> {
+            Batch saved = invocation.getArgument(0);
+            saved.setId(701L);
+            return saved;
+        });
+        when(productionMaterialRequestService.requireReadyRequestForPlan(70L)).thenReturn(new com.code.entity.ProductionMaterialRequest());
+
+        ProductionPlan result = orderWorkflowService.completeInventoryAlertPlan(70L, "prod@test.com", "finish");
+
+        assertEquals("DONE", result.getStatus());
+        assertEquals(17L, result.getCompletedById());
+        assertEquals("prod@test.com", result.getCompletedByEmail());
+        assertEquals("生产管理员甲", result.getCompletedByName());
+        assertNotNull(result.getEndDate());
+        verify(batchRepository).findBySourceOrderNoAndProductId(plan.getPlanNo(), 700L);
+        verify(batchRepository).save(argThat(batch -> plan.getPlanNo().equals(batch.getSourceOrderNo())
+                && QualityService.STATUS_PENDING.equals(batch.getQualityStatus())
+                && "生产管理员甲".equals(batch.getProductionManagerName())));
+        verify(notificationService, times(1)).broadcast(eq("/topic/quality"), any());
+        verify(notificationService, times(1)).broadcast(eq("/topic/production"), any());
+        verify(productionMaterialRequestService).markProductionCompletedForPlan(70L);
+    }
+
+    @Test
+    void confirmInventoryAlertPlanStockInStoresFinishedGoodsInventory() {
+        Product product = new Product();
+        product.setId(710L);
+        product.setName("库存预警成品");
+
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(71L);
+        plan.setPlanNo("PLAN-ALERT-710-202605130002");
+        plan.setProduct(product);
+        plan.setPlannedQuantity(9.0);
+        plan.setStatus("DONE");
+
+        Batch batch = new Batch();
+        batch.setId(711L);
+        batch.setBatchNo("BT-710");
+        batch.setSourceOrderNo(plan.getPlanNo());
+        batch.setProduct(product);
+        batch.setQualityStatus(QualityService.STATUS_PASSED);
+
+        Warehouse finishedWarehouse = new Warehouse();
+        finishedWarehouse.setId(8L);
+        finishedWarehouse.setCode(WarehouseDefaults.FINISHED_GOODS_WAREHOUSE_CODE);
+        finishedWarehouse.setName("成品仓");
+
+        java.util.List<InventoryItem> inventoryState = new java.util.ArrayList<>();
+
+        when(productionPlanRepository.findById(71L)).thenReturn(Optional.of(plan));
+        when(batchRepository.findBySourceOrderNoAndProductId(plan.getPlanNo(), 710L)).thenReturn(Optional.of(batch));
+        when(inventoryItemRepository.findByProductId(710L)).thenAnswer(invocation -> inventoryState);
+        when(warehouseRepository.findByCodeIgnoreCase(WarehouseDefaults.FINISHED_GOODS_WAREHOUSE_CODE)).thenReturn(Optional.of(finishedWarehouse));
+        when(inventoryItemRepository.save(any(InventoryItem.class))).thenAnswer(invocation -> {
+            InventoryItem saved = invocation.getArgument(0);
+            if (!inventoryState.contains(saved)) {
+                inventoryState.add(saved);
+            }
+            return saved;
+        });
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stockTransactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ProductionPlan result = orderWorkflowService.confirmInventoryAlertPlanStockIn(71L, "warehouse@test.com", "stock in");
+
+        assertEquals("WAREHOUSED", result.getStatus());
+        verify(inventoryItemRepository).save(argThat(item -> item.getWarehouse() == finishedWarehouse
+                && item.getProduct() == product
+                && item.getQuantity() == 9.0
+                && "BT-710".equals(item.getLot())));
+        verify(stockTransactionRepository).save(any());
+        verify(notificationService).broadcast(eq("/topic/production"), any());
+        verify(productionMaterialRequestService).markWarehousedForPlan(71L);
     }
 
     @Test

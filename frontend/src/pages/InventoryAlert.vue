@@ -160,7 +160,7 @@ const createProductionPlan = async (item) => {
   }
   try {
     await inventoryApi.createAlertProductionPlan(item.productId, { quantity, note: `库存预警触发，建议补产 ${quantity}` });
-    message.value = `${item.name} 的生产计划已创建，并已通知生产管理员。`;
+    message.value = `${item.name} 的补产计划已创建，并已通知生产管理员；系统已新增待执行生产计划单。`;
     await loadAlerts();
   } catch (err) {
     error.value = err?.response?.data?.message || err?.response?.data || '生产计划创建失败。';
@@ -181,7 +181,7 @@ const createPurchaseRequest = async (item) => {
   }
   try {
     await inventoryApi.createAlertPurchaseRequest(item.productId, { quantity, note: `库存预警触发，建议补采 ${quantity}` });
-    message.value = `${item.name} 的采购申请已创建，并已通知采购管理员。`;
+    message.value = `${item.name} 的采购申请已创建，并已向采购管理员发送处理通知。`;
     await loadAlerts();
   } catch (err) {
     error.value = err?.response?.data?.message || err?.response?.data || '采购申请创建失败。';

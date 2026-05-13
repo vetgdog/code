@@ -78,7 +78,36 @@ const normalizeMessage = (topic, body) => {
   };
 };
 
+const getEventFingerprint = (event) => {
+  const payload = event?.payload ?? null;
+  let payloadText;
+  try {
+    payloadText = JSON.stringify(payload);
+  } catch (error) {
+    payloadText = String(payload);
+  }
+  return [event?.messageType || '', event?.entity || '', event?.entityId ?? '', payloadText].join('|');
+};
+
+const isDuplicateEvent = (event) => {
+  const fingerprint = getEventFingerprint(event);
+  const currentTimestamp = Number(new Date(event?.timestamp || 0));
+  return state.events.slice(0, 20).some((existingEvent) => {
+    if (getEventFingerprint(existingEvent) !== fingerprint) {
+      return false;
+    }
+    const existingTimestamp = Number(new Date(existingEvent?.timestamp || 0));
+    if (Number.isNaN(currentTimestamp) || Number.isNaN(existingTimestamp)) {
+      return true;
+    }
+    return Math.abs(currentTimestamp - existingTimestamp) <= 5000;
+  });
+};
+
 const appendEvent = (event) => {
+  if (isDuplicateEvent(event)) {
+    return;
+  }
   state.lastMessage = event;
   state.events.unshift(event);
   state.unreadCount += 1;

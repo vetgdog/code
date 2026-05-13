@@ -14,7 +14,7 @@
           <thead class="text-xs text-on-surface-variant">
             <tr class="text-left">
               <th class="pb-2">申请单号</th>
-              <th class="pb-2">订单号</th>
+              <th class="pb-2">来源单号</th>
               <th class="pb-2">成品</th>
               <th class="pb-2">原材料明细</th>
               <th class="pb-2">状态</th>
@@ -25,7 +25,7 @@
           <tbody>
             <tr v-for="request in productionMaterialRequests" :key="request.id" class="border-t border-outline-variant/20">
               <td class="py-3 font-semibold">{{ request.requestNo }}</td>
-              <td class="py-3">{{ request.salesOrder?.orderNo || '-' }}</td>
+              <td class="py-3">{{ request.salesOrder?.orderNo || request.productionPlan?.planNo || '-' }}</td>
               <td class="py-3">{{ request.finishedProduct?.name || '-' }}</td>
               <td class="py-3">{{ summarizeMaterialRequestItems(request.items) }}</td>
               <td class="py-3">{{ request.status }}</td>
@@ -69,6 +69,43 @@
               <td class="py-3">{{ order.status }}</td>
               <td class="py-3">
                 <button class="text-xs text-primary font-semibold" @click="confirmProductionStockIn(order.id)">确认生产入库</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section v-if="canReceiveInventory" class="bg-white rounded-lg border border-outline-variant/10">
+      <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold tracking-tight">待确认库存预警补产入库</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">库存预警生成的补产计划在质检合格后，会进入这里等待仓库确认入库。</p>
+        </div>
+        <button class="text-xs text-primary font-semibold" @click="loadPendingAlertProductionPlans">刷新</button>
+      </div>
+      <div class="p-5">
+        <div v-if="pendingAlertProductionPlans.length === 0" class="text-sm text-on-surface-variant">暂无待确认的库存预警补产入库计划。</div>
+        <table v-else class="w-full text-sm">
+          <thead class="text-xs text-on-surface-variant">
+            <tr class="text-left">
+              <th class="pb-2">计划单号</th>
+              <th class="pb-2">产品</th>
+              <th class="pb-2">SKU</th>
+              <th class="pb-2">数量</th>
+              <th class="pb-2">状态</th>
+              <th class="pb-2">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="plan in pendingAlertProductionPlans" :key="plan.id" class="border-t border-outline-variant/20">
+              <td class="py-3 font-semibold">{{ plan.planNo }}</td>
+              <td class="py-3">{{ plan.productName || '-' }}</td>
+              <td class="py-3">{{ plan.productSku || '-' }}</td>
+              <td class="py-3">{{ formatQuantity(plan.plannedQuantity) }}</td>
+              <td class="py-3">{{ plan.status }}</td>
+              <td class="py-3">
+                <button class="text-xs text-primary font-semibold" @click="confirmAlertProductionStockIn(plan)">确认补产入库</button>
               </td>
             </tr>
           </tbody>
@@ -322,6 +359,7 @@ const transactions = ref([]);
 const loading = ref(false);
 const transactionError = ref('');
 const pendingProductionOrders = ref([]);
+const pendingAlertProductionPlans = ref([]);
 const pendingPurchaseOrders = ref([]);
 const productionMaterialRequests = ref([]);
 
@@ -415,6 +453,19 @@ const loadPendingProductionOrders = async () => {
   }
 };
 
+const loadPendingAlertProductionPlans = async () => {
+  if (!canReceiveInventory.value) {
+    pendingAlertProductionPlans.value = [];
+    return;
+  }
+  try {
+    const response = await productionApi.listPendingAlertStockInPlans();
+    pendingAlertProductionPlans.value = response.data || [];
+  } catch (err) {
+    pendingAlertProductionPlans.value = [];
+  }
+};
+
 const loadPendingPurchaseOrders = async () => {
   if (!canReceiveInventory.value) {
     pendingPurchaseOrders.value = [];
@@ -450,6 +501,18 @@ const confirmProductionStockIn = async (orderId) => {
     await Promise.all([loadPendingProductionOrders(), loadItems(), loadTransactions()]);
   } catch (err) {
     error.value = err?.response?.data?.message || err?.response?.data || '生产入库确认失败。';
+  }
+};
+
+const confirmAlertProductionStockIn = async (plan) => {
+  message.value = '';
+  error.value = '';
+  try {
+    await productionApi.warehouseStockInAlertPlan(plan.id, {});
+    message.value = `补产计划 ${plan.planNo} 已确认入库。`;
+    await Promise.all([loadPendingAlertProductionPlans(), loadItems(), loadTransactions()]);
+  } catch (err) {
+    error.value = err?.response?.data?.message || err?.response?.data || '库存预警补产入库确认失败。';
   }
 };
 
@@ -523,6 +586,7 @@ watch(
       loadTransactions();
       loadWarehouses();
       loadPendingProductionOrders();
+      loadPendingAlertProductionPlans();
       loadPendingPurchaseOrders();
       loadProductionMaterialRequests();
     }
@@ -531,7 +595,7 @@ watch(
 
 onMounted(async () => {
   await Promise.all([loadProducts(), loadWarehouses()]);
-  await Promise.all([loadItems(), loadTransactions(), loadPendingProductionOrders(), loadPendingPurchaseOrders(), loadProductionMaterialRequests()]);
+  await Promise.all([loadItems(), loadTransactions(), loadPendingProductionOrders(), loadPendingAlertProductionPlans(), loadPendingPurchaseOrders(), loadProductionMaterialRequests()]);
 });
 </script>
 

@@ -236,6 +236,9 @@ public class QualityService {
                 .findFirst()
                 .orElse(null);
         if (order == null) {
+            if (STATUS_PASSED.equals(normalizedResult) && isInventoryAlertPlanBatch(batch)) {
+                notifyWarehouseForQualifiedBatch(batch, remarks);
+            }
             return;
         }
 
@@ -331,6 +334,12 @@ public class QualityService {
                 .replaceAll("-+", "-")
                 .replaceAll("(^-|-$)", "");
         return normalized.isEmpty() ? "/topic/production" : "/topic/production/manager/" + normalized;
+    }
+
+    private boolean isInventoryAlertPlanBatch(Batch batch) {
+        return batch != null
+                && batch.getSourceOrderNo() != null
+                && batch.getSourceOrderNo().startsWith("PLAN-ALERT-");
     }
 
     private String normalizeResult(String result) {

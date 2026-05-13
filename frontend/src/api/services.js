@@ -29,6 +29,10 @@ export const orderApi = {
 export const productionApi = {
   createTask: (payload) => client.post('/production/tasks', payload),
   listByUser: (userId) => client.get(`/production/tasks/user/${userId}`),
+  listActivePlans: () => client.get('/production/plans/active'),
+  listPendingAlertStockInPlans: () => client.get('/production/plans/pending-stock-in'),
+  completeAlertPlan: (planId, payload = {}) => client.post(`/production/plans/${planId}/complete`, payload),
+  warehouseStockInAlertPlan: (planId, payload = {}) => client.post(`/production/plans/${planId}/warehouse-stock-in`, payload),
   listMaterialRequests: (params = {}) => client.get('/production/material-requests', { params }),
   createMaterialRequest: (payload) => client.post('/production/material-requests', payload),
   warehouseReviewMaterialRequest: (requestId, payload = {}) => client.post(`/production/material-requests/${requestId}/warehouse-review`, payload),

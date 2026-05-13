@@ -142,6 +142,10 @@ const formatNotificationTitle = (event) => {
       return '采购到货待仓库确认入库。';
     case 'PROCUREMENT_ORDER_WAREHOUSED':
       return '采购单已确认收货并自动入库。';
+    case 'INVENTORY_ALERT_PRODUCTION_PLAN_CREATED':
+      return '库存预警已生成新的补产计划。';
+    case 'INVENTORY_ALERT_PURCHASE_REQUEST_CREATED':
+      return '库存预警已生成新的采购申请。';
     case 'QUALITY_PENDING':
       return '有新的成品批次待质检，请查看。';
     case 'QUALITY_PASSED':

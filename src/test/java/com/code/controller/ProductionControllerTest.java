@@ -2,8 +2,11 @@ package com.code.controller;
 
 import com.code.entity.Batch;
 import com.code.entity.Product;
+import com.code.entity.ProductionMaterialRequest;
+import com.code.entity.ProductionPlan;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.ProductionTaskRepository;
+import com.code.service.OrderWorkflowService;
 import com.code.service.ProductionMaterialRequestService;
 import com.code.service.QualityService;
 import com.code.service.WeeklyPlanningService;
@@ -19,6 +22,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -46,6 +53,9 @@ class ProductionControllerTest {
 
     @Mock
     private ProductionMaterialRequestService productionMaterialRequestService;
+
+    @Mock
+    private OrderWorkflowService orderWorkflowService;
 
     @Test
     void listQualityAlertsShouldReturnMappedFailedBatchesForCurrentProductionManager() {
@@ -81,6 +91,83 @@ class ProductionControllerTest {
         assertEquals("尺寸偏差超标", result.get(0).getQualityRemark());
         assertEquals("质检员甲", result.get(0).getInspectorName());
         verify(qualityService).listProductionAlerts("prod@test.com");
+    }
+
+    @Test
+    void listActivePlansShouldExposeInventoryAlertPlansAsPendingWork() {
+        Product product = new Product();
+        product.setId(7L);
+        product.setSku("FG-ALERT-001");
+        product.setName("预警补产成品");
+
+        ProductionPlan alertPlan = new ProductionPlan();
+        alertPlan.setId(15L);
+        alertPlan.setPlanNo("PLAN-ALERT-7-202605130001");
+        alertPlan.setProduct(product);
+        alertPlan.setPlannedQuantity(18.0);
+        alertPlan.setStatus("PLANNED");
+        alertPlan.setCreatedBy(3L);
+        alertPlan.setCreatedByName("仓库管理员甲");
+        alertPlan.setCreatedAt(LocalDateTime.of(2026, 5, 13, 9, 30));
+
+        when(productionPlanRepository.findAll()).thenReturn(List.of(alertPlan));
+
+        List<ProductionController.ActiveProductionPlanView> result = productionController.listActivePlans();
+
+        assertEquals(1, result.size());
+        assertEquals("PLAN-ALERT-7-202605130001", result.get(0).getPlanNo());
+        assertEquals("库存预警补产", result.get(0).getSourceType());
+        assertEquals("", result.get(0).getOrderNo());
+        assertEquals("FG-ALERT-001", result.get(0).getProductSku());
+        assertEquals("预警补产成品", result.get(0).getProductName());
+        assertEquals(18.0, result.get(0).getPlannedQuantity());
+        assertEquals("PLANNED", result.get(0).getStatus());
+    }
+
+    @Test
+    void completeInventoryAlertPlanShouldDelegateToWorkflowService() {
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(19L);
+        plan.setPlanNo("PLAN-ALERT-19-202605130001");
+        plan.setStatus("DONE");
+
+        Authentication authentication = mock(Authentication.class);
+        when(authentication.getName()).thenReturn("prod@test.com");
+        when(orderWorkflowService.completeInventoryAlertPlan(19L, "prod@test.com", "补产完工")).thenReturn(plan);
+
+        ProductionController.PlanActionCommand command = new ProductionController.PlanActionCommand();
+        command.setNote("补产完工");
+        ProductionPlan result = productionController.completeInventoryAlertPlan(19L, command, authentication);
+
+        assertEquals("PLAN-ALERT-19-202605130001", result.getPlanNo());
+        assertEquals("DONE", result.getStatus());
+        verify(orderWorkflowService).completeInventoryAlertPlan(19L, "prod@test.com", "补产完工");
+    }
+
+    @Test
+    void createMaterialRequestShouldPassPlanIdToService() {
+        Authentication authentication = mock(Authentication.class);
+        when(authentication.getName()).thenReturn("prod@test.com");
+
+        ProductionMaterialRequest request = new ProductionMaterialRequest();
+        request.setId(51L);
+        request.setRequestNo("PMR-PLAN-001");
+        when(productionMaterialRequestService.createRequest(any(), any(), any(), any(), any())).thenReturn(request);
+
+        ProductionController.MaterialRequestCommand command = new ProductionController.MaterialRequestCommand();
+        command.setPlanId(88L);
+        command.setNote("库存预警补产先领料");
+
+        ProductionController.MaterialItemCommand item = new ProductionController.MaterialItemCommand();
+        item.setMaterialProductId(9L);
+        item.setRequiredQuantity(4.5);
+        command.setItems(List.of(item));
+
+        ProductionMaterialRequest result = productionController.createMaterialRequest(command, authentication);
+
+        assertNotNull(result);
+        assertEquals("PMR-PLAN-001", result.getRequestNo());
+        verify(productionMaterialRequestService).createRequest(isNull(), eq(88L), any(), eq("库存预警补产先领料"), eq("prod@test.com"));
     }
 }
 

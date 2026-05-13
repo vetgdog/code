@@ -4,6 +4,7 @@ import com.code.entity.InventoryItem;
 import com.code.entity.Product;
 import com.code.entity.ProductionMaterialRequest;
 import com.code.entity.ProductionMaterialRequestItem;
+import com.code.entity.ProductionPlan;
 import com.code.entity.PurchaseRequest;
 import com.code.entity.SalesOrder;
 import com.code.entity.StockTransaction;
@@ -12,6 +13,7 @@ import com.code.entity.Warehouse;
 import com.code.repository.InventoryItemRepository;
 import com.code.repository.ProductRepository;
 import com.code.repository.ProductionMaterialRequestRepository;
+import com.code.repository.ProductionPlanRepository;
 import com.code.repository.PurchaseRequestRepository;
 import com.code.repository.SalesOrderRepository;
 import com.code.repository.StockTransactionRepository;
@@ -68,6 +70,7 @@ public class ProductionMaterialRequestService {
 
     private final ProductionMaterialRequestRepository requestRepository;
     private final SalesOrderRepository salesOrderRepository;
+    private final ProductionPlanRepository productionPlanRepository;
     private final ProductRepository productRepository;
     private final InventoryItemRepository inventoryItemRepository;
     private final StockTransactionRepository stockTransactionRepository;
@@ -80,6 +83,7 @@ public class ProductionMaterialRequestService {
      */
     public ProductionMaterialRequestService(ProductionMaterialRequestRepository requestRepository,
                                             SalesOrderRepository salesOrderRepository,
+                                            ProductionPlanRepository productionPlanRepository,
                                             ProductRepository productRepository,
                                             InventoryItemRepository inventoryItemRepository,
                                             StockTransactionRepository stockTransactionRepository,
@@ -88,6 +92,7 @@ public class ProductionMaterialRequestService {
                                             NotificationService notificationService) {
         this.requestRepository = requestRepository;
         this.salesOrderRepository = salesOrderRepository;
+        this.productionPlanRepository = productionPlanRepository;
         this.productRepository = productRepository;
         this.inventoryItemRepository = inventoryItemRepository;
         this.stockTransactionRepository = stockTransactionRepository;
@@ -101,7 +106,7 @@ public class ProductionMaterialRequestService {
      *
      * <p>管理员、仓库经理、采购经理可查看全部；生产经理只能看到自己发起的申请，从而保证跨部门共享与最小可见范围之间的平衡。</p>
      */
-    public List<ProductionMaterialRequest> listRequests(String role, String operatorEmail, Long orderId, String status) {
+    public List<ProductionMaterialRequest> listRequests(String role, String operatorEmail, Long orderId, Long planId, String status) {
         String normalizedRole = normalizeRole(role);
         String normalizedEmail = safe(operatorEmail).toLowerCase(Locale.ROOT);
         String normalizedStatus = safe(status);
@@ -111,6 +116,7 @@ public class ProductionMaterialRequestService {
         // 代价是当数据量增大时会把部分筛选压力放到内存层，后续可考虑下推到 Repository 查询。
         return requestRepository.findAllByOrderByCreatedAtDesc().stream()
                 .filter(request -> orderId == null || matchesOrder(request, orderId))
+                .filter(request -> planId == null || matchesPlan(request, planId))
                 .filter(request -> normalizedStatus.isEmpty() || normalizedStatus.equalsIgnoreCase(safe(request.getStatus())))
                 .filter(request -> canViewRequest(normalizedRole, currentUser, request))
                 .collect(Collectors.toList());
@@ -123,23 +129,17 @@ public class ProductionMaterialRequestService {
      */
     @Transactional
     public ProductionMaterialRequest createRequest(Long orderId,
+                                                   Long planId,
                                                    List<MaterialItemCommand> itemCommands,
                                                    String note,
                                                    String operatorEmail) {
-        // 第一步先做入参与订单状态校验，尽早失败，避免后续进入库存/通知等重操作分支。
-        if (orderId == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择对应的生产订单");
-        }
-        SalesOrder order = salesOrderRepository.findById(orderId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "订单不存在: " + orderId));
-        if (!OrderWorkflowService.STATUS_IN_PRODUCTION.equals(safe(order.getStatus()))) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅生产中的订单可以发起原材料申请");
-        }
+        // 第一步先做入参与来源校验，尽早失败，避免后续进入库存/通知等重操作分支。
+        ProductionMaterialSource source = resolveRequestSource(orderId, planId);
         if (itemCommands == null || itemCommands.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请至少添加一条原材料需求");
         }
-        if (hasActiveRequest(orderId)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该订单已有进行中的原材料申请，请勿重复提交");
+        if (hasActiveRequest(source)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, source.duplicateRequestMessage);
         }
 
         User operator = requireCurrentUser(operatorEmail);
@@ -148,8 +148,9 @@ public class ProductionMaterialRequestService {
         // 形成 JPA 一对多关系，最终由 save(request) 统一持久化。
         ProductionMaterialRequest request = new ProductionMaterialRequest();
         request.setRequestNo(generateRequestNo());
-        request.setSalesOrder(order);
-        request.setFinishedProduct(resolveFinishedProduct(order));
+        request.setSalesOrder(source.order);
+        request.setProductionPlan(source.plan);
+        request.setFinishedProduct(source.finishedProduct);
         request.setStatus(STATUS_PENDING_WAREHOUSE_REVIEW);
         request.setRequestNote(blankToNull(note));
         request.setProcurementTriggered(false);
@@ -275,6 +276,16 @@ public class ProductionMaterialRequestService {
     }
 
     /**
+     * 库存预警补产计划完工前的前置校验：也必须先完成原材料申请与备料。
+     */
+    public ProductionMaterialRequest requireReadyRequestForPlan(Long planId) {
+        return requestRepository.findByProductionPlanIdOrderByCreatedAtDesc(planId).stream()
+                .filter(request -> STATUS_READY_FOR_PRODUCTION.equals(safe(request.getStatus())))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先为该补产计划提交原材料申请，并等待仓库备料完成后再进行生产"));
+    }
+
+    /**
      * 标记生产完工。
      *
      * <p>这里不处理库存扣减，因为原材料已经在仓库审核通过时出库；本方法仅推进领料申请状态，为后续成品入库闭环做准备。</p>
@@ -291,6 +302,17 @@ public class ProductionMaterialRequestService {
     }
 
     /**
+     * 标记补产计划对应的领料申请已完工。
+     */
+    @Transactional
+    public void markProductionCompletedForPlan(Long planId) {
+        ProductionMaterialRequest request = requireReadyRequestForPlan(planId);
+        request.setStatus(STATUS_PRODUCTION_COMPLETED);
+        request.setProductionCompletedAt(LocalDateTime.now());
+        requestRepository.save(request);
+    }
+
+    /**
      * 标记成品已入库，结束领料申请生命周期。
      */
     @Transactional
@@ -298,6 +320,21 @@ public class ProductionMaterialRequestService {
         // 使用 ifPresent 而不是强制抛错，表示“成品入库联动更新领料状态”属于补充闭环动作：
         // 若未找到待入库申请，则主流程不因该步骤硬失败。
         requestRepository.findBySalesOrderIdOrderByCreatedAtDesc(orderId).stream()
+                .filter(request -> STATUS_PRODUCTION_COMPLETED.equals(safe(request.getStatus())))
+                .findFirst()
+                .ifPresent(request -> {
+                    request.setStatus(STATUS_WAREHOUSED);
+                    request.setWarehousedAt(LocalDateTime.now());
+                    requestRepository.save(request);
+                });
+    }
+
+    /**
+     * 标记补产计划对应的领料申请已完成成品入库。
+     */
+    @Transactional
+    public void markWarehousedForPlan(Long planId) {
+        requestRepository.findByProductionPlanIdOrderByCreatedAtDesc(planId).stream()
                 .filter(request -> STATUS_PRODUCTION_COMPLETED.equals(safe(request.getStatus())))
                 .findFirst()
                 .ifPresent(request -> {
@@ -326,14 +363,24 @@ public class ProductionMaterialRequestService {
                 && request.getSalesOrder().getId().equals(orderId);
     }
 
+    private boolean matchesPlan(ProductionMaterialRequest request, Long planId) {
+        return request != null
+                && request.getProductionPlan() != null
+                && request.getProductionPlan().getId() != null
+                && request.getProductionPlan().getId().equals(planId);
+    }
+
     /**
      * 判断订单是否已经存在“尚未闭环”的领料申请。
      *
      * <p>这里把待仓库、待采购、待生产、待入库都视为活跃态，核心目的不是限制创建动作本身，
      * 而是防止同一订单在流程未结束前重复领料、重复触发采购。</p>
      */
-    private boolean hasActiveRequest(Long orderId) {
-        return requestRepository.findBySalesOrderIdOrderByCreatedAtDesc(orderId).stream()
+    private boolean hasActiveRequest(ProductionMaterialSource source) {
+        List<ProductionMaterialRequest> requests = source.plan != null
+                ? requestRepository.findByProductionPlanIdOrderByCreatedAtDesc(source.plan.getId())
+                : requestRepository.findBySalesOrderIdOrderByCreatedAtDesc(source.order.getId());
+        return requests.stream()
                 .anyMatch(request -> List.of(
                         STATUS_PENDING_WAREHOUSE_REVIEW,
                         STATUS_WAITING_PROCUREMENT,
@@ -353,6 +400,30 @@ public class ProductionMaterialRequestService {
             return null;
         }
         return order.getItems().get(0).getProduct();
+    }
+
+    private ProductionMaterialSource resolveRequestSource(Long orderId, Long planId) {
+        boolean hasOrder = orderId != null;
+        boolean hasPlan = planId != null;
+        if (hasOrder == hasPlan) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择一个生产来源：生产订单或补产计划");
+        }
+        if (hasOrder) {
+            SalesOrder order = salesOrderRepository.findById(orderId)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "订单不存在: " + orderId));
+            if (!OrderWorkflowService.STATUS_IN_PRODUCTION.equals(safe(order.getStatus()))) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅生产中的订单可以发起原材料申请");
+            }
+            return new ProductionMaterialSource(order, null, resolveFinishedProduct(order), "该订单已有进行中的原材料申请，请勿重复提交");
+        }
+
+        ProductionPlan plan = productionPlanRepository.findById(planId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "生产计划不存在: " + planId));
+        String status = safe(plan.getStatus()).toUpperCase(Locale.ROOT);
+        if (List.of("DONE", "WAREHOUSED", "CANCELLED").contains(status)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许为该补产计划发起原材料申请: " + plan.getStatus());
+        }
+        return new ProductionMaterialSource(null, plan, plan.getProduct(), "该补产计划已有进行中的原材料申请，请勿重复提交");
     }
 
     /**
@@ -408,8 +479,8 @@ public class ProductionMaterialRequestService {
         StringBuilder builder = new StringBuilder();
         builder.append("来源生产领料申请 ")
                 .append(request.getRequestNo())
-                .append(" / 订单 ")
-                .append(request.getSalesOrder() == null ? "-" : safe(request.getSalesOrder().getOrderNo()))
+                .append(" / ")
+                .append(describeRequestSource(request))
                 .append("，原材料 ")
                 .append(availability.item.getMaterialProduct() == null ? "-" : safe(availability.item.getMaterialProduct().getName()))
                 .append(" 缺口 ")
@@ -506,12 +577,22 @@ public class ProductionMaterialRequestService {
         StringBuilder builder = new StringBuilder();
         builder.append("生产领料申请 ")
                 .append(request.getRequestNo())
-                .append(" / 订单 ")
-                .append(request.getSalesOrder() == null ? "-" : safe(request.getSalesOrder().getOrderNo()));
+                .append(" / ")
+                .append(describeRequestSource(request));
         if (!safe(note).isEmpty()) {
             builder.append("；").append(note.trim());
         }
         return builder.toString();
+    }
+
+    private String describeRequestSource(ProductionMaterialRequest request) {
+        if (request != null && request.getSalesOrder() != null) {
+            return "订单 " + safe(request.getSalesOrder().getOrderNo());
+        }
+        if (request != null && request.getProductionPlan() != null) {
+            return "补产计划 " + safe(request.getProductionPlan().getPlanNo());
+        }
+        return "未知来源";
     }
 
     /**
@@ -686,6 +767,23 @@ public class ProductionMaterialRequestService {
             this.item = item;
             this.availableQuantity = availableQuantity;
             this.shortageQuantity = shortageQuantity;
+        }
+    }
+
+    private static class ProductionMaterialSource {
+        private final SalesOrder order;
+        private final ProductionPlan plan;
+        private final Product finishedProduct;
+        private final String duplicateRequestMessage;
+
+        private ProductionMaterialSource(SalesOrder order,
+                                         ProductionPlan plan,
+                                         Product finishedProduct,
+                                         String duplicateRequestMessage) {
+            this.order = order;
+            this.plan = plan;
+            this.finishedProduct = finishedProduct;
+            this.duplicateRequestMessage = duplicateRequestMessage;
         }
     }
 

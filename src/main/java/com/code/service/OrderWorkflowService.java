@@ -292,6 +292,107 @@ public class OrderWorkflowService {
         return saved;
     }
 
+    @Transactional
+    public ProductionPlan completeInventoryAlertPlan(Long planId, String operator, String note) {
+        ProductionPlan plan = getProductionPlan(planId);
+        requireInventoryAlertPlan(plan);
+        String currentStatus = safeStatus(plan.getStatus()).toUpperCase(Locale.ROOT);
+        if ("DONE".equals(currentStatus) || "WAREHOUSED".equals(currentStatus) || "CANCELLED".equals(currentStatus)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许执行库存预警补产完工: " + plan.getStatus());
+        }
+
+        productionMaterialRequestService.requireReadyRequestForPlan(planId);
+
+        User productionManager = resolveUserByEmail(operator);
+        plan.setStatus("DONE");
+        plan.setEndDate(LocalDateTime.now());
+        plan.setCompletedById(productionManager == null ? null : productionManager.getId());
+        plan.setCompletedByEmail(blankToNull(operator));
+        plan.setCompletedByName(resolveDisplayName(productionManager, operator));
+        ProductionPlan saved = productionPlanRepository.save(plan);
+
+        prepareCompletedPlanBatchesForQuality(null, List.of(saved));
+        productionMaterialRequestService.markProductionCompletedForPlan(planId);
+        notificationService.broadcast(
+                "/topic/production",
+                new NotificationMessage(
+                        "INVENTORY_ALERT_PRODUCTION_DONE",
+                        "ProductionPlan",
+                        saved.getId(),
+                        saved,
+                        LocalDateTime.now()
+                )
+        );
+        return saved;
+    }
+
+    public List<ProductionPlan> listInventoryAlertPlansPendingStockIn() {
+        return productionPlanRepository.findAll().stream()
+                .filter(this::isInventoryAlertPlan)
+                .filter(plan -> "DONE".equalsIgnoreCase(safeStatus(plan.getStatus())))
+                .filter(this::hasPassedQualityBatchForAlertPlan)
+                .sorted(Comparator.comparing(ProductionPlan::getEndDate, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(ProductionPlan::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    @Transactional
+    public ProductionPlan confirmInventoryAlertPlanStockIn(Long planId, String operator, String note) {
+        ProductionPlan plan = getProductionPlan(planId);
+        requireInventoryAlertPlan(plan);
+        if (!"DONE".equalsIgnoreCase(safeStatus(plan.getStatus()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许确认库存预警补产入库: " + plan.getStatus());
+        }
+
+        Product product = plan.getProduct();
+        if (product == null || product.getId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "生产计划缺少产品信息，无法入库");
+        }
+
+        Batch batch = batchRepository.findBySourceOrderNoAndProductId(plan.getPlanNo(), product.getId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "未找到对应质检批次，无法确认入库"));
+        if (!QualityService.STATUS_PASSED.equals(safeStatus(batch.getQualityStatus()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "批次 " + batch.getBatchNo() + " 尚未质检合格，不能入库");
+        }
+
+        double quantity = safeNumber(plan.getPlannedQuantity());
+        if (quantity > 0) {
+            Warehouse warehouse = resolveWarehouseForProduct(product.getId());
+            InventoryItem item = findOrCreateInventoryItem(product, warehouse);
+            item.setQuantity(safeNumber(item.getQuantity()) + quantity);
+            item.setLot(batch.getBatchNo());
+            inventoryItemRepository.save(item);
+
+            User operatorUser = resolveUserByEmail(operator);
+            createStockTransaction(
+                    product,
+                    warehouse,
+                    quantity,
+                    "IN",
+                    "PRODUCTION_PLAN",
+                    plan.getId(),
+                    operatorUser,
+                    noteOrDefault(blankToNull(note), "库存预警补产成品入库"),
+                    batch.getBatchNo()
+            );
+        }
+
+        plan.setStatus("WAREHOUSED");
+        ProductionPlan saved = productionPlanRepository.save(plan);
+        productionMaterialRequestService.markWarehousedForPlan(planId);
+        notificationService.broadcast(
+                "/topic/production",
+                new NotificationMessage(
+                        "INVENTORY_ALERT_PRODUCTION_WAREHOUSED",
+                        "ProductionPlan",
+                        saved.getId(),
+                        saved,
+                        LocalDateTime.now()
+                )
+        );
+        return saved;
+    }
+
     public List<SalesOrder> listOrdersPendingProductionStockIn() {
         // 仅筛出状态为“待生产入库”且确实存在 DONE 生产计划的订单，
         // 避免前端看到无法入库的无效数据。
@@ -696,9 +797,40 @@ public class OrderWorkflowService {
                 .sum();
     }
 
+    private ProductionPlan getProductionPlan(Long planId) {
+        if (planId == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "生产计划ID不能为空");
+        }
+        return productionPlanRepository.findById(planId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "生产计划不存在: " + planId));
+    }
+
+    private void requireInventoryAlertPlan(ProductionPlan plan) {
+        if (!isInventoryAlertPlan(plan)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该生产计划不是库存预警补产计划");
+        }
+    }
+
+    private boolean isInventoryAlertPlan(ProductionPlan plan) {
+        return plan != null && plan.getPlanNo() != null && plan.getPlanNo().startsWith("PLAN-ALERT-");
+    }
+
+    private boolean hasPassedQualityBatchForAlertPlan(ProductionPlan plan) {
+        Product product = plan == null ? null : plan.getProduct();
+        if (product == null || product.getId() == null) {
+            return false;
+        }
+        return batchRepository.findBySourceOrderNoAndProductId(plan.getPlanNo(), product.getId())
+                .map(batch -> QualityService.STATUS_PASSED.equals(safeStatus(batch.getQualityStatus())))
+                .orElse(false);
+    }
+
     private String resolveOrderNoFromPlanNo(String planNo) {
         if (planNo == null || !planNo.startsWith("PLAN-")) {
             return "";
+        }
+        if (planNo.startsWith("PLAN-ALERT-")) {
+            return planNo;
         }
         String remaining = planNo.substring("PLAN-".length());
         int lastSeparator = remaining.lastIndexOf('-');

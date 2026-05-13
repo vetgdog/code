@@ -29,6 +29,16 @@ public class ProductionMaterialRequest {
     @JoinColumn(name = "sales_order_id")
     private SalesOrder salesOrder;
 
+    /**
+     * 对应生产计划。
+     *
+     * <p>该字段主要服务于“库存预警补产”这类没有直接销售订单来源、但仍需要先走领料申请再生产的场景。
+     * 因此同一张申请只会二选一关联 salesOrder 或 productionPlan，而不会同时依赖两种来源。</p>
+     */
+    @ManyToOne
+    @JoinColumn(name = "production_plan_id")
+    private ProductionPlan productionPlan;
+
     /** 对应本次生产的成品。 */
     @ManyToOne
     @JoinColumn(name = "finished_product_id")

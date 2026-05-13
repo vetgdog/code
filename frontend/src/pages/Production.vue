@@ -3,6 +3,71 @@
     <section v-if="canUpdateProduction" class="bg-white rounded-lg border border-outline-variant/10">
       <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
         <div>
+          <h3 class="text-sm font-bold tracking-tight">待执行生产计划单</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">展示尚未完工的生产计划，包含订单缺货补产与库存预警补产计划；其中库存预警补产也必须先申请原材料、待仓库备料后方可生产。</p>
+        </div>
+        <button class="text-xs text-primary font-semibold" @click="loadActivePlans">刷新</button>
+      </div>
+      <div class="p-5">
+        <div v-if="activePlanError" class="mb-3 text-xs text-error">{{ activePlanError }}</div>
+        <div v-if="activePlans.length === 0" class="text-sm text-on-surface-variant">当前没有待执行生产计划单。</div>
+        <table v-else class="w-full text-sm">
+          <thead class="text-xs text-on-surface-variant">
+            <tr class="text-left">
+              <th class="pb-2">计划单号</th>
+              <th class="pb-2">来源</th>
+              <th class="pb-2">订单号</th>
+              <th class="pb-2">产品名称</th>
+              <th class="pb-2">SKU</th>
+              <th class="pb-2">计划数量</th>
+              <th class="pb-2">状态</th>
+              <th class="pb-2">领料状态</th>
+              <th class="pb-2">创建人</th>
+              <th class="pb-2">创建时间</th>
+              <th class="pb-2">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="plan in activePlans" :key="plan.id" class="border-t border-outline-variant/20">
+              <td class="py-3 font-semibold text-primary">{{ plan.planNo }}</td>
+              <td class="py-3">{{ plan.sourceType || '-' }}</td>
+              <td class="py-3">{{ plan.orderNo || '-' }}</td>
+              <td class="py-3">{{ plan.productName || '-' }}</td>
+              <td class="py-3">{{ plan.productSku || '-' }}</td>
+              <td class="py-3">{{ formatNumber(plan.plannedQuantity) }}</td>
+              <td class="py-3">{{ formatRecordStatus(plan.status) }}</td>
+              <td class="py-3">{{ isInventoryAlertPlan(plan) ? formatMaterialRequestStatus(latestRequestByPlan[plan.id]?.status) : '-' }}</td>
+              <td class="py-3">{{ formatOperator(plan.createdByName, plan.createdBy) }}</td>
+              <td class="py-3">{{ formatDate(plan.createdAt) }}</td>
+              <td class="py-3">
+                <button
+                  v-if="canUpdateProduction && isInventoryAlertPlan(plan) && !latestRequestByPlan[plan.id]"
+                  class="text-xs text-primary"
+                  @click="prefillAlertPlanMaterialRequest(plan)"
+                >
+                  先申请原料
+                </button>
+                <button
+                  v-else-if="canUpdateProduction && isInventoryAlertPlan(plan) && canCompleteAlertPlan(plan.id)"
+                  class="text-xs text-primary"
+                  @click="completeAlertPlan(plan)"
+                >
+                  完成补产并送质检
+                </button>
+                <span v-else-if="canUpdateProduction && isInventoryAlertPlan(plan)" class="text-xs text-on-surface-variant">
+                  {{ latestRequestByPlan[plan.id]?.status === '已备料待生产' ? '可开始生产' : '等待仓库备料' }}
+                </span>
+                <span v-else class="text-xs text-on-surface-variant">按订单流程处理</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section v-if="canUpdateProduction" class="bg-white rounded-lg border border-outline-variant/10">
+      <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
+        <div>
           <h3 class="text-sm font-bold tracking-tight">待处理质检异常</h3>
           <p class="mt-1 text-xs text-on-surface-variant">展示当前生产管理员负责批次中的不合格成品，便于及时返工与跟进。</p>
         </div>
@@ -43,18 +108,28 @@
     <section v-if="canUpdateProduction" class="bg-white rounded-lg border border-outline-variant/10 p-5">
       <div class="flex items-center justify-between gap-4">
         <div>
-          <h3 class="text-sm font-bold tracking-tight">手动生产领料申请</h3>
-          <p class="mt-1 text-xs text-on-surface-variant">生产管理员需先提交所需原材料和数量，待仓库管理员审核并完成原料出库后，方可继续生产。</p>
+          <h3 class="text-sm font-bold tracking-tight">生产领料申请</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">无论是正常生产订单，还是仓库触发的库存预警补产计划，生产管理员都需先提交所需原材料和数量，待仓库管理员审核并完成原料出库后，方可继续生产。</p>
           <p class="mt-2 text-xs text-slate-500">同一张领料申请支持添加多个原材料种类；若重复添加同一原材料，系统会自动合并数量，避免重复行。</p>
         </div>
         <button class="text-xs text-primary font-semibold" @click="loadMaterialRequests">刷新申请</button>
       </div>
 
       <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" @submit.prevent="submitMaterialRequest">
-        <select v-model="materialRequestForm.orderId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
+        <select v-model="materialRequestForm.sourceType" class="rounded border border-outline-variant/40 px-3 py-2 text-sm">
+          <option value="order">生产订单</option>
+          <option value="plan">库存预警补产计划</option>
+        </select>
+        <select v-if="materialRequestForm.sourceType === 'order'" v-model="materialRequestForm.orderId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
           <option value="">请选择生产订单</option>
           <option v-for="order in productionOrders.filter((item) => item.status === '生产中')" :key="order.id" :value="String(order.id)">
             {{ order.orderNo }} / {{ formatProducts(order.items) }}
+          </option>
+        </select>
+        <select v-else v-model="materialRequestForm.planId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
+          <option value="">请选择补产计划</option>
+          <option v-for="plan in alertPlansForMaterialRequest" :key="plan.id" :value="String(plan.id)">
+            {{ plan.planNo }} / {{ plan.productName || '-' }} / {{ formatNumber(plan.plannedQuantity) }}
           </option>
         </select>
         <select v-model="materialItemForm.productId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm">
@@ -102,7 +177,7 @@
           <thead class="text-xs text-on-surface-variant">
             <tr class="text-left">
               <th class="pb-2">申请单号</th>
-              <th class="pb-2">订单号</th>
+              <th class="pb-2">来源单号</th>
               <th class="pb-2">成品</th>
               <th class="pb-2">原材料明细</th>
               <th class="pb-2">状态</th>
@@ -113,7 +188,7 @@
           <tbody>
             <tr v-for="request in materialRequests" :key="request.id" class="border-t border-outline-variant/20">
               <td class="py-3 font-semibold">{{ request.requestNo }}</td>
-              <td class="py-3">{{ request.salesOrder?.orderNo || '-' }}</td>
+              <td class="py-3">{{ resolveMaterialRequestSourceNo(request) }}</td>
               <td class="py-3">{{ request.finishedProduct?.name || '-' }}</td>
               <td class="py-3">{{ summarizeMaterialItems(request.items) }}</td>
               <td class="py-3">{{ formatMaterialRequestStatus(request.status) }}</td>
@@ -259,6 +334,8 @@ const productionOrders = ref([]);
 const loading = ref(false);
 const statusMessage = ref('');
 const statusError = ref('');
+const activePlans = ref([]);
+const activePlanError = ref('');
 const productionRecords = ref([]);
 const productionChartRecords = ref([]);
 const productionChartError = ref('');
@@ -271,7 +348,9 @@ const materialRequestMessage = ref('');
 const materialRequestError = ref('');
 const materialRequestItems = ref([]);
 const materialRequestForm = reactive({
+  sourceType: 'order',
   orderId: '',
+  planId: '',
   note: ''
 });
 const materialItemForm = reactive({
@@ -306,13 +385,28 @@ const resolveLastWeekRange = () => {
   };
 };
 
+const loadActivePlans = async () => {
+  if (!canUpdateProduction.value) {
+    activePlans.value = [];
+    return;
+  }
+  activePlanError.value = '';
+  try {
+    const response = await productionApi.listActivePlans();
+    activePlans.value = response.data || [];
+  } catch (error) {
+    activePlans.value = [];
+    activePlanError.value = error?.response?.data?.message || error?.response?.data || '待执行生产计划加载失败。';
+  }
+};
+
 const loadOrders = async () => {
   loading.value = true;
   try {
     const response = await orderApi.list();
     const all = response.data || [];
     productionOrders.value = all.filter((order) => ['生产中', '待质检'].includes(order.status));
-    if (!materialRequestForm.orderId) {
+    if (materialRequestForm.sourceType === 'order' && !materialRequestForm.orderId) {
       const firstOpenOrder = productionOrders.value.find((order) => order.status === '生产中');
       materialRequestForm.orderId = firstOpenOrder ? String(firstOpenOrder.id) : '';
     }
@@ -332,6 +426,18 @@ const completeProduction = async (orderId) => {
     await Promise.all([loadOrders(), loadRecords(), loadMaterialRequests()]);
   } catch (error) {
     statusError.value = error?.response?.data?.message || error?.response?.data || '生产完成回传失败。';
+  }
+};
+
+const completeAlertPlan = async (plan) => {
+  statusMessage.value = '';
+  statusError.value = '';
+  try {
+    await productionApi.completeAlertPlan(plan.id, {});
+    statusMessage.value = `补产计划 ${plan.planNo} 已完工，并已推送质检。`;
+    await Promise.all([loadActivePlans(), loadRecords(), loadQualityAlerts(), loadMaterialRequests()]);
+  } catch (error) {
+    statusError.value = error?.response?.data?.message || error?.response?.data || '库存预警补产计划完工失败。';
   }
 };
 
@@ -384,8 +490,12 @@ const removeMaterialItem = (index) => {
 const submitMaterialRequest = async () => {
   materialRequestMessage.value = '';
   materialRequestError.value = '';
-  if (!materialRequestForm.orderId) {
+  if (materialRequestForm.sourceType === 'order' && !materialRequestForm.orderId) {
     materialRequestError.value = '请选择对应的生产订单。';
+    return;
+  }
+  if (materialRequestForm.sourceType === 'plan' && !materialRequestForm.planId) {
+    materialRequestError.value = '请选择对应的补产计划。';
     return;
   }
   if (!materialRequestItems.value.length) {
@@ -394,7 +504,8 @@ const submitMaterialRequest = async () => {
   }
   try {
     const response = await productionApi.createMaterialRequest({
-      orderId: Number(materialRequestForm.orderId),
+      orderId: materialRequestForm.sourceType === 'order' ? Number(materialRequestForm.orderId) : null,
+      planId: materialRequestForm.sourceType === 'plan' ? Number(materialRequestForm.planId) : null,
       note: materialRequestForm.note || null,
       items: materialRequestItems.value.map((item) => ({
         materialProductId: item.materialProductId,
@@ -403,14 +514,16 @@ const submitMaterialRequest = async () => {
     });
     materialRequestMessage.value = `领料申请 ${response?.data?.requestNo || ''} 已提交，等待仓库管理员审核。`;
     resetMaterialRequestForm();
-    await loadMaterialRequests();
+    await Promise.all([loadMaterialRequests(), loadActivePlans()]);
   } catch (error) {
     materialRequestError.value = error?.response?.data?.message || error?.response?.data || '生产领料申请提交失败。';
   }
 };
 
 const resetMaterialRequestForm = () => {
+  materialRequestForm.sourceType = 'order';
   materialRequestForm.orderId = productionOrders.value.find((order) => order.status === '生产中')?.id ? String(productionOrders.value.find((order) => order.status === '生产中').id) : '';
+  materialRequestForm.planId = '';
   materialRequestForm.note = '';
   materialRequestItems.value = [];
   materialItemForm.productId = '';
@@ -421,7 +534,20 @@ const prefillMaterialRequest = (order) => {
   if (!order?.id) {
     return;
   }
+  materialRequestForm.sourceType = 'order';
   materialRequestForm.orderId = String(order.id);
+  materialRequestForm.planId = '';
+  materialRequestMessage.value = '';
+  materialRequestError.value = '';
+};
+
+const prefillAlertPlanMaterialRequest = (plan) => {
+  if (!plan?.id) {
+    return;
+  }
+  materialRequestForm.sourceType = 'plan';
+  materialRequestForm.planId = String(plan.id);
+  materialRequestForm.orderId = '';
   materialRequestMessage.value = '';
   materialRequestError.value = '';
 };
@@ -478,6 +604,7 @@ const formatProducts = (items) => (items || []).map((item) => item.product?.name
 const formatQuantity = (items) => (items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
 const formatNumber = (value) => Number(value || 0).toFixed(2);
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
+const isInventoryAlertPlan = (plan) => (plan?.planNo || '').startsWith('PLAN-ALERT-');
 const formatMaterialRequestStatus = (value) => value || '未申请';
 const summarizeMaterialItems = (items) => (items || []).map((item) => `${item.materialProduct?.name || item.productName || '-'} x ${formatNumber(item.requiredQuantity)}`).join('；') || '-';
 const formatRecordStatus = (value) => {
@@ -507,16 +634,29 @@ const latestRequestByOrder = computed(() => materialRequests.value.reduce((accum
   return accumulator;
 }, {}));
 
+const latestRequestByPlan = computed(() => materialRequests.value.reduce((accumulator, request) => {
+  const planId = request?.productionPlan?.id;
+  if (planId != null && !accumulator[planId]) {
+    accumulator[planId] = request;
+  }
+  return accumulator;
+}, {}));
+
+const alertPlansForMaterialRequest = computed(() => activePlans.value.filter((plan) => isInventoryAlertPlan(plan)));
+
 const canCompleteOrder = (orderId) => latestRequestByOrder.value[orderId]?.status === '已备料待生产';
+const canCompleteAlertPlan = (planId) => latestRequestByPlan.value[planId]?.status === '已备料待生产';
+const resolveMaterialRequestSourceNo = (request) => request?.salesOrder?.orderNo || request?.productionPlan?.planNo || '-';
 
 onMounted(async () => {
-  await Promise.all([loadOrders(), loadRecords(), loadLastWeekProductionOverview(), loadQualityAlerts(), loadMaterialRequests(), loadRawMaterialOptions()]);
+  await Promise.all([loadActivePlans(), loadOrders(), loadRecords(), loadLastWeekProductionOverview(), loadQualityAlerts(), loadMaterialRequests(), loadRawMaterialOptions()]);
 });
 
 watch(
   () => realtime.state.lastMessage,
   (message) => {
     if (message?.topic && (message.topic.startsWith('/topic/orders') || message.topic.startsWith('/topic/production') || message.topic.startsWith('/topic/quality') || message.topic.startsWith('/topic/procurement'))) {
+      loadActivePlans();
       loadOrders();
       loadRecords();
       loadLastWeekProductionOverview();

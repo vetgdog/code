@@ -10,5 +10,6 @@ import java.util.List;
 public interface ProductionMaterialRequestRepository extends JpaRepository<ProductionMaterialRequest, Long> {
     List<ProductionMaterialRequest> findAllByOrderByCreatedAtDesc();
     List<ProductionMaterialRequest> findBySalesOrderIdOrderByCreatedAtDesc(Long salesOrderId);
+    List<ProductionMaterialRequest> findByProductionPlanIdOrderByCreatedAtDesc(Long productionPlanId);
 }
 
