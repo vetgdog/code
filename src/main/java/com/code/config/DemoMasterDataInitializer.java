@@ -26,8 +26,19 @@ import java.util.Set;
 
 @Component
 @ConditionalOnProperty(name = "app.init.demo-master-data.enabled", havingValue = "true")
+/*
+ * 演示主数据初始化器。
+ *
+ * <p>该组件在应用启动时按需补齐演示环境所需的角色、账号、产品、仓库与空库存记录。它并不是一次性的 SQL 初始化脚本，
+ * 而是一个可重复执行、具备幂等 upsert 行为的启动任务，适合开发/演示环境反复启动后仍保持关键主数据完整。</p>
+ */
 public class DemoMasterDataInitializer implements ApplicationRunner {
 
+    /**
+     * 演示账号默认密码。
+     *
+     * <p>该值仅适合本地或测试环境，生产环境不应保留固定默认密码。</p>
+     */
     private static final String DEFAULT_PASSWORD = "密码123456";
 
     @Autowired
@@ -51,6 +62,8 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
     @Override
     @Transactional
     public void run(ApplicationArguments args) {
+        // @Transactional 保证整个初始化过程具备事务一致性：
+        // 如果中途某个 upsert 失败，不会留下部分已创建、部分未创建的半成品演示数据。
         Role supplierRole = upsertRole("ROLE_SUPPLIER", "供应商账号");
         Role salesManagerRole = upsertRole("ROLE_SALES_MANAGER", "销售管理员账号");
 
@@ -93,6 +106,7 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
     }
 
     private Role upsertRole(String roleName, String description) {
+        // 通过“先查后存”的 upsert 方式保持幂等，避免每次启动都插入重复角色。
         Role role = roleRepository.findByName(roleName).orElseGet(Role::new);
         role.setName(roleName);
         role.setDescription(description);
@@ -100,6 +114,7 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
     }
 
     private Warehouse upsertWarehouse(String code, String name, String location) {
+        // 仓库主数据是库存与采购流程的基础前提，因此在演示环境里优先确保存在。
         Warehouse warehouse = warehouseRepository.findByCodeIgnoreCase(code).orElseGet(Warehouse::new);
         warehouse.setCode(code);
         warehouse.setName(name);
@@ -111,6 +126,7 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
     }
 
     private User upsertUser(String username, String email, String fullName, String phone, Role role) {
+        // 既按邮箱查，也按用户名查，是为了兼容不同阶段初始化脚本可能使用过的唯一标识口径。
         User user = userRepository.findByEmailIgnoreCase(email)
                 .or(() -> userRepository.findByUsername(username))
                 .orElseGet(User::new);
@@ -120,6 +136,9 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
         user.setPhone(phone);
         user.setEnabled(true);
         user.setRoles(Set.of(role));
+
+        // passwordEncoder.matches(...) 用于判断库中密码是否已经是目标默认密码的摘要，
+        // 避免每次启动都无意义地重新加密并覆盖，影响调试和数据可预测性。
         if (user.getPassword() == null || user.getPassword().isBlank() || !passwordEncoder.matches(DEFAULT_PASSWORD, user.getPassword())) {
             user.setPassword(passwordEncoder.encode(DEFAULT_PASSWORD));
         }
@@ -131,6 +150,8 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
     }
 
     private Product upsertProduct(Product seed) {
+        // 使用 seed 对象承载模板数据，再回填到持久化对象上，
+        // 可以把“构造默认值”和“保存数据库实体”两类职责拆开，提高可读性。
         Product product = productRepository.findBySkuIgnoreCase(seed.getSku()).orElseGet(Product::new);
         product.setSku(seed.getSku());
         product.setName(seed.getName());
@@ -152,6 +173,8 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
     }
 
     private void ensureInventoryStub(Product product, Warehouse warehouse) {
+        // 这里创建的是“空库存占位记录”，不是实际入库。
+        // 这样做能让前端库存页、预警页在主数据初始化后就具备稳定的 product+warehouse 组合，不必等第一次交易发生后才看得到记录。
         if (product == null || product.getId() == null || warehouse == null || warehouse.getId() == null) {
             return;
         }
@@ -181,6 +204,8 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
                                      double safetyStock,
                                      int leadTimeDays,
                                      String description) {
+        // 该方法只负责组织“默认原材料模板”，不直接落库，
+        // 便于后续统一经过 upsertProduct(...) 写入数据库。
         Product product = new Product();
         product.setSku(sku);
         product.setName(name);
@@ -204,6 +229,7 @@ public class DemoMasterDataInitializer implements ApplicationRunner {
                                       double unitPrice,
                                       double safetyStock,
                                       String description) {
+        // 成品模板与原材料模板复用统一 Product 实体，只是 productType 和字段侧重点不同。
         Product product = new Product();
         product.setSku(sku);
         product.setName(name);

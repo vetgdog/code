@@ -28,6 +28,16 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/production")
+/*
+ * 生产模块控制器。
+ *
+ * <p>该类负责暴露生产任务、生产记录、领料申请、质量预警、周计划等与生产执行相关的 API。
+ * 它在系统中的作用是承接“生产管理员视角”的核心工作台能力：
+ * 既能看任务、回传状态，也能查看历史生产记录和质量异常，属于典型的生产执行层接口。</p>
+ *
+ * <p>设计上，该 Controller 更多扮演“查询编排 + 权限边界 + Service 调用入口”的角色，
+ * 复杂的业务落在 WeeklyPlanningService、ProductionMaterialRequestService、QualityService 等服务中。</p>
+ */
 public class ProductionController {
 
     @Autowired
@@ -49,6 +59,15 @@ public class ProductionController {
     private ProductionMaterialRequestService productionMaterialRequestService;
 
     @PostMapping("/tasks")
+    /*
+     * 创建生产任务。
+     *
+     * <p>当前实现比较直接：接收前端传入的 ProductionTask 实体后直接保存，
+     * 并通过 WebSocket 广播通知生产看板刷新。</p>
+     *
+     * <p>这种实现适合快速交付，但在企业级场景下通常还会补充：
+     * 任务编号生成规范、状态机校验、来源订单/计划一致性校验等。</p>
+     */
     public ProductionTask createTask(@RequestBody ProductionTask task) {
         ProductionTask saved = productionTaskRepository.save(task);
         notificationService.broadcast("/topic/production", new NotificationMessage("TASK_CREATED","ProductionTask", saved.getId(), saved, null));
@@ -56,11 +75,23 @@ public class ProductionController {
     }
 
     @GetMapping("/tasks/user/{userId}")
+    /*
+     * 查询指定人员名下的生产任务。
+     *
+     * <p>这个接口面向“按人看任务”场景，适合生产管理员或个人工作台展示。</p>
+     */
     public List<ProductionTask> listByUser(@PathVariable Long userId) {
         return productionTaskRepository.findByAssignedTo(userId);
     }
 
     @GetMapping("/records")
+    /*
+     * 查询生产记录。
+     *
+     * <p>普通生产管理员默认只看自己的生产完成记录；
+     * 管理员可以看全量。
+     * 这里的“生产记录”并不是独立表，而是从 production_plan 中筛选出 DONE/WAREHOUSED 状态的数据进行投影。</p>
+     */
     public List<ProductionRecordView> listRecords(@RequestParam(required = false) String startDate,
                                                   @RequestParam(required = false) String endDate,
                                                   @RequestParam(required = false) String keyword,
@@ -70,6 +101,15 @@ public class ProductionController {
 
     @GetMapping("/material-requests")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','WAREHOUSE_MANAGER','PROCUREMENT_MANAGER','ADMIN')")
+    /*
+     * 查询生产领料申请。
+     *
+     * <p>这是典型的跨角色协同接口：
+     * - 生产管理员提交领料；
+     * - 仓库管理员审核出库；
+     * - 采购管理员查看是否存在缺料；
+     * 因此授权范围覆盖多个岗位。</p>
+     */
     public List<ProductionMaterialRequest> listMaterialRequests(@RequestParam(required = false) Long orderId,
                                                                 @RequestParam(required = false) String status,
                                                                 Authentication authentication) {
@@ -82,6 +122,12 @@ public class ProductionController {
 
     @PostMapping("/material-requests")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    /*
+     * 创建生产领料申请。
+     *
+     * <p>Controller 层把前端请求对象转换为服务层更稳定的命令对象，
+     * 这样可以降低 Service 对 Web 请求结构的耦合度。</p>
+     */
     public ProductionMaterialRequest createMaterialRequest(@RequestBody MaterialRequestCommand request,
                                                            Authentication authentication) {
         List<ProductionMaterialRequestService.MaterialItemCommand> items = request == null || request.getItems() == null
@@ -99,6 +145,12 @@ public class ProductionController {
 
     @PostMapping("/material-requests/{requestId}/warehouse-review")
     @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    /*
+     * 仓库对生产领料申请做审核/出库处理。
+     *
+     * <p>该接口通常会联动库存扣减和库存流水生成，
+     * 因此必须由仓库角色执行，而不能由生产侧直接修改库存。</p>
+     */
     public ProductionMaterialRequest warehouseReviewMaterialRequest(@PathVariable Long requestId,
                                                                     @RequestBody(required = false) WarehouseReviewCommand request,
                                                                     Authentication authentication) {
@@ -111,6 +163,12 @@ public class ProductionController {
 
     @GetMapping("/records/overview")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    /*
+     * 查询生产记录总览。
+     *
+     * <p>与 listRecords 的区别在于：overview 允许返回全员记录，
+     * 主要用于图表、统计面板等“团队级”分析场景。</p>
+     */
     public List<ProductionRecordView> listRecordOverview(@RequestParam(required = false) String startDate,
                                                          @RequestParam(required = false) String endDate,
                                                          @RequestParam(required = false) String keyword,
@@ -123,6 +181,12 @@ public class ProductionController {
                                                     String keyword,
                                                     Authentication authentication,
                                                     boolean includeAllOperators) {
+        // 统一的生产记录查询实现：
+        // 1. 解析时间参数；
+        // 2. 判断当前用户是否管理员；
+        // 3. 从生产计划中筛选出“构成记录”的状态；
+        // 4. 再按人、按时间、按关键字过滤；
+        // 5. 最后映射成前端需要的记录视图对象。
         LocalDateTime start = parseStartDate(startDate);
         LocalDateTime end = parseEndDate(endDate);
         if (start != null && end != null && end.isBefore(start)) {
@@ -133,7 +197,12 @@ public class ProductionController {
         String currentEmail = authentication == null ? "" : normalize(authentication.getName());
 
         return productionPlanRepository.findAll().stream()
+                // 生产记录的来源是 production_plan，但不是所有计划都算“已形成记录”，
+                // 只有 DONE/WAREHOUSED 才说明生产已经实质完成到一定阶段。
                 .filter(plan -> isProductionRecord(plan.getStatus()))
+
+                // includeAllOperators = true 时用于全员统计，不按当前操作人过滤；
+                // 否则普通生产管理员只能看到自己的完工记录。
                 .filter(plan -> includeAllOperators || admin || currentEmail.isEmpty() || currentEmail.equals(normalize(plan.getCompletedByEmail())))
                 .filter(plan -> start == null || (resolveCompletedAt(plan) != null && !resolveCompletedAt(plan).isBefore(start)))
                 .filter(plan -> end == null || (resolveCompletedAt(plan) != null && !resolveCompletedAt(plan).isAfter(end)))
@@ -146,6 +215,12 @@ public class ProductionController {
 
     @GetMapping("/quality-alerts")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    /*
+     * 查询生产相关质量预警。
+     *
+     * <p>当批次质检不合格时，生产管理员需要及时感知返工任务，
+     * 因此这里按生产负责人邮箱聚合不合格批次。</p>
+     */
     public List<ProductionQualityAlertView> listQualityAlerts(Authentication authentication) {
         String email = authentication == null ? "" : authentication.getName();
         return qualityService.listProductionAlerts(email).stream()
@@ -155,12 +230,20 @@ public class ProductionController {
 
     @GetMapping("/weekly-plans")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    /*
+     * 查询全部生产周计划。
+     * 用于计划列表、历史周计划查看等场景。
+     */
     public List<ProductionWeeklyPlan> listWeeklyPlans() {
         return weeklyPlanningService.listProductionPlans();
     }
 
     @GetMapping("/weekly-plans/current")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    /*
+     * 查询当前参考日期对应的生产周计划。
+     * 如果不存在，服务层可能会按规则自动生成。
+     */
     public ProductionWeeklyPlan getCurrentWeeklyPlan(@RequestParam(required = false) String referenceDate,
                                                      Authentication authentication) {
         return weeklyPlanningService.getOrGenerateProductionPlan(parseReferenceDate(referenceDate), authentication == null ? "" : authentication.getName());
@@ -168,12 +251,24 @@ public class ProductionController {
 
     @PostMapping("/weekly-plans/generate")
     @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    /*
+     * 强制重新生成生产周计划。
+     *
+     * <p>这个接口常用于“计划快照失效”或“希望基于最新业务数据重算”的场景，
+     * 与单纯刷新页面不同，它会真正触发服务层的重新计算逻辑。</p>
+     */
     public ProductionWeeklyPlan generateWeeklyPlan(@RequestParam(required = false) String referenceDate,
                                                    Authentication authentication) {
         return weeklyPlanningService.generateProductionPlan(parseReferenceDate(referenceDate), authentication == null ? "" : authentication.getName());
     }
 
     @PostMapping("/tasks/{taskId}/status")
+    /*
+     * 更新生产任务状态。
+     *
+     * <p>当前实现是直接改状态字段并广播通知，逻辑比较轻。
+     * 如果未来任务状态流转更复杂，建议引入明确的状态机约束，防止非法跳转。</p>
+     */
     public ProductionTask updateStatus(@PathVariable Long taskId, @RequestParam String status) {
         ProductionTask t = productionTaskRepository.findById(taskId).orElseThrow(() -> new RuntimeException("Task not found"));
         t.setStatus(status);
@@ -183,11 +278,15 @@ public class ProductionController {
     }
 
     private boolean isProductionRecord(String status) {
+        // DONE / WAREHOUSED 两种状态被视为“可统计生产记录”，
+        // 分别代表完工、完工并入库两类生产完成场景。
         String normalized = normalize(status);
         return "done".equals(normalized) || "warehoused".equals(normalized);
     }
 
     private ProductionRecordView toRecordView(ProductionPlan plan) {
+        // 这里做的是“实体 -> 展示视图”转换，
+        // 目的是把生产计划聚合成前端真正需要展示的记录结构。
         return new ProductionRecordView(
                 plan.getId(),
                 plan.getPlanNo(),
@@ -222,6 +321,8 @@ public class ProductionController {
     }
 
     private LocalDateTime resolveCompletedAt(ProductionPlan plan) {
+        // 优先使用 endDate 作为完工时间；
+        // 若缺失，则退化使用 createdAt，保证记录排序和过滤不至于直接丢失。
         return plan.getEndDate() != null ? plan.getEndDate() : plan.getCreatedAt();
     }
 
@@ -234,6 +335,8 @@ public class ProductionController {
     }
 
     private String resolveOrderNo(String planNo) {
+        // 生产计划号中包含来源订单号信息，
+        // 这里通过字符串拆解把订单号还原出来，供前端展示与检索使用。
         if (planNo == null || !planNo.startsWith("PLAN-")) {
             return "";
         }

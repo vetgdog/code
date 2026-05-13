@@ -1,31 +1,38 @@
 spring:
   datasource:
+    # dev 环境数据库配置，通常用于本地联调。
     url: jdbc:mysql://localhost:3306/code?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
     driver-class-name: com.mysql.cj.jdbc.Driver
     username: root
     password: 1234
   jpa:
     hibernate:
+      # 开发模式下允许实体变更自动同步到表结构，提升迭代效率。
       ddl-auto: update
     show-sql: false
   sql:
     init:
+      # 关闭自动 SQL 初始化，避免和手工脚本/启动器重复造数。
       mode: never
   jackson:
     serialization:
       fail-on-empty-beans: false
 
 server:
+  # dev profile 下使用不同端口，便于和默认配置或其他服务并行运行。
   port: 8081
 
 jwt:
+  # 开发环境 JWT 密钥，生产环境必须替换。
   secret: changeit_replace_in_production_with_secure_value
   expiration-ms: 3600000
 
 app:
   init:
     raw-materials:
+      # 打开后启动时自动补默认原材料。
       enabled: false
     demo-master-data:
+      # 打开后启动时自动补一套演示主数据。
       enabled: false
 

@@ -34,6 +34,17 @@ import java.util.Locale;
 import java.util.UUID;
 
 @Service
+/*
+ * 订单履约工作流服务。
+ *
+ * <p>这是整个系统最核心的业务编排服务之一，负责驱动销售订单从“创建”到“发货”的完整履约流程。
+ * 它串联了销售、仓库、生产、质检、库存、批次、消息通知等多个模块，
+ * 本质上实现的是一个轻量级订单状态机（State Machine）。</p>
+ *
+ * <p>在企业架构中，这类服务通常属于“应用服务 / 流程服务”层：
+ * 它不专注于某一个实体的简单增删改查，而是负责跨聚合协调多个资源，
+ * 例如 SalesOrder、ProductionPlan、InventoryItem、Batch、StockTransaction 同步变化。</p>
+ */
 public class OrderWorkflowService {
 
     public static final String STATUS_PENDING_SALES_REVIEW = "待销售审核";
@@ -75,6 +86,12 @@ public class OrderWorkflowService {
     private ProductionMaterialRequestService productionMaterialRequestService;
 
     @Transactional
+    /*
+     * 销售审核通过后，将订单路由给仓库核查。
+     *
+     * <p>这是订单进入正式履约流程的第一步。只有当订单处于“待销售审核”或初始 NEW 状态时才允许流转，
+     * 否则说明该订单已经进入其它业务阶段，重复提交会破坏状态机一致性。</p>
+     */
     public SalesOrder routeToWarehouseCheck(Long orderId, String operator) {
         SalesOrder order = getOrder(orderId);
         String currentStatus = safeStatus(order.getStatus());
@@ -102,6 +119,16 @@ public class OrderWorkflowService {
     }
 
     @Transactional
+    /*
+     * 仓库核查订单。
+     *
+     * <p>该方法是订单流程中最关键的分流点：
+     * - 如果库存充足：直接锁定库存，订单进入“已接单”；
+     * - 如果库存不足：自动创建生产计划，订单进入“生产中”。</p>
+     *
+     * <p>这里使用事务的原因非常明确：库存锁定、订单状态更新、生产计划创建必须保持原子性，
+     * 任一环节失败都不能只执行一半，否则极易出现“状态变了但库存没锁住”的脏数据。</p>
+     */
     public WarehouseReviewResult warehouseReview(Long orderId, String operator, String note) {
         SalesOrder order = getOrder(orderId);
         String currentStatus = safeStatus(order.getStatus());
@@ -167,6 +194,18 @@ public class OrderWorkflowService {
     }
 
     @Transactional
+    /*
+     * 生产完工回传。
+     *
+     * <p>完工后系统不会立即把成品计入库存，而是先：
+     * 1. 把生产计划状态改为 DONE；
+     * 2. 生成待质检批次；
+     * 3. 更新订单状态为“待质检”；
+     * 4. 推送质检通知。</p>
+     *
+     * <p>这体现了企业制造系统中非常重要的分层：
+     * 生产完工 ≠ 质检合格 ≠ 仓库入库，三者必须分步处理。</p>
+     */
     public SalesOrder markProductionCompleted(Long orderId, String operator, String note) {
         SalesOrder order = getOrder(orderId);
         if (!STATUS_IN_PRODUCTION.equals(safeStatus(order.getStatus()))) {
@@ -208,6 +247,12 @@ public class OrderWorkflowService {
     }
 
     @Transactional
+    /*
+     * 仓库确认生产入库。
+     *
+     * <p>该方法会把质检合格的成品批次正式计入库存，并将生产计划状态改为 WAREHOUSED。
+     * 随后再次检查订单缺口是否已被补齐，如果补齐则把订单推进到“已接单/可发货”状态。</p>
+     */
     public SalesOrder confirmProductionStockIn(Long orderId, String operator, String note) {
         SalesOrder order = getOrder(orderId);
         if (!STATUS_PENDING_PRODUCTION_STOCK_IN.equals(safeStatus(order.getStatus()))) {
@@ -248,6 +293,8 @@ public class OrderWorkflowService {
     }
 
     public List<SalesOrder> listOrdersPendingProductionStockIn() {
+        // 仅筛出状态为“待生产入库”且确实存在 DONE 生产计划的订单，
+        // 避免前端看到无法入库的无效数据。
         return salesOrderRepository.findAll().stream()
                 .filter(order -> STATUS_PENDING_PRODUCTION_STOCK_IN.equals(safeStatus(order.getStatus())))
                 .filter(order -> !productionPlanRepository.findByPlanNoStartingWithAndStatus("PLAN-" + order.getOrderNo() + "-", "DONE").isEmpty())
@@ -256,6 +303,15 @@ public class OrderWorkflowService {
     }
 
     @Transactional
+    /*
+     * 仓库发货。
+     *
+     * <p>这是履约闭环中的实物扣减节点：
+     * 1. 消耗已预留/可用库存；
+     * 2. 生成销售出库流水；
+     * 3. 更新订单状态为已发货；
+     * 4. 通知销售与客户。</p>
+     */
     public SalesOrder markOrderShipped(Long orderId, String operator, String note) {
         SalesOrder order = getOrder(orderId);
         if (!STATUS_ACCEPTED.equals(safeStatus(order.getStatus()))) {
@@ -292,6 +348,8 @@ public class OrderWorkflowService {
     }
 
     private List<ProductionPlan> stockInCompletedPlans(SalesOrder order, String operator, List<ProductionPlan> completedPlans) {
+        // 将已完工且质检通过的计划正式入成品库。
+        // 这里同时更新 inventory_items 和 stock_transaction，体现“余额表 + 流水表”并存的库存设计。
         if (completedPlans.isEmpty()) {
             return List.of();
         }
@@ -316,6 +374,8 @@ public class OrderWorkflowService {
             item.setQuantity(safeNumber(item.getQuantity()) + quantity);
             item.setLot(batch.getBatchNo());
             inventoryItemRepository.save(item);
+
+            // 每次库存变更都生成流水，是企业系统审计与追溯的基础能力。
             createStockTransaction(product, warehouse, quantity, "IN", "PRODUCTION_PLAN", plan.getId(), operatorUser, noteOrDefault("生产质检合格后仓库确认入库", operator), batch.getBatchNo());
             plan.setStatus("WAREHOUSED");
         }
@@ -324,6 +384,7 @@ public class OrderWorkflowService {
     }
 
     private void prepareCompletedPlanBatchesForQuality(SalesOrder order, List<ProductionPlan> plans) {
+        // 生产完工后为每个计划创建/更新待检批次，并广播质量待办。
         for (ProductionPlan plan : plans) {
             Product product = plan.getProduct();
             if (product == null || product.getId() == null) {
@@ -352,6 +413,8 @@ public class OrderWorkflowService {
     }
 
     private Batch createOrUpdateBatch(SalesOrder order, ProductionPlan plan, Product product, double quantity) {
+        // 批次是“生产结果”的质量追溯载体。
+        // 同一来源订单 + 产品通常只维护一个最新批次记录，便于后续质检和订单联动。
         String sourceOrderNo = order == null ? resolveOrderNoFromPlanNo(plan.getPlanNo()) : safeOrderNo(order.getOrderNo());
         Batch batch = batchRepository.findBySourceOrderNoAndProductId(sourceOrderNo, product.getId())
                 .orElseGet(Batch::new);
@@ -386,6 +449,7 @@ public class OrderWorkflowService {
     }
 
     private List<ProductShortage> evaluateShortages(SalesOrder order) {
+        // 核算订单是否缺货：逐个订单明细统计需要量与当前可用量的差值。
         List<ProductShortage> shortages = new ArrayList<>();
         for (OrderItem item : order.getItems()) {
             Product product = item.getProduct();
@@ -405,6 +469,8 @@ public class OrderWorkflowService {
     }
 
     private void reserveInventoryForOrder(SalesOrder order) {
+        // 锁定库存，而不是直接扣减库存。
+        // 这是仓储系统里的经典做法：订单通过核查后先占用库存，真正发货时再扣减 quantity。
         for (OrderItem item : order.getItems()) {
             Product product = item.getProduct();
             if (product == null || product.getId() == null) {
@@ -422,6 +488,8 @@ public class OrderWorkflowService {
                     continue;
                 }
                 double allocate = Math.min(available, remaining);
+
+                // reservedQuantity 表示“已被订单占用但尚未真实发出”的数量。
                 inv.setReservedQuantity(safeNumber(inv.getReservedQuantity()) + allocate);
                 remaining -= allocate;
             }
@@ -433,6 +501,8 @@ public class OrderWorkflowService {
     }
 
     private List<ProductionPlan> createProductionPlans(SalesOrder order, List<ProductShortage> shortages, User operatorUser) {
+        // 当仓库发现缺货时，自动为缺口创建生产计划。
+        // 当前策略是一种“缺多少补多少”的简单拉动式生产模式。
         List<ProductionPlan> plans = new ArrayList<>();
         for (ProductShortage shortage : shortages) {
             if (shortage.getShortageQuantity() <= 0) {
@@ -455,6 +525,8 @@ public class OrderWorkflowService {
     }
 
     private List<StockMovement> consumeInventoryForShipment(SalesOrder order) {
+        // 发货时优先消耗已预留库存，
+        // 如果预留不足，再尝试从剩余可用库存继续扣减，保证发货动作尽可能成功。
         List<StockMovement> movements = new ArrayList<>();
         for (OrderItem item : order.getItems()) {
             Product product = item.getProduct();
@@ -473,6 +545,8 @@ public class OrderWorkflowService {
                 if (reserved <= 0) {
                     continue;
                 }
+
+                // 第一阶段：优先消费 reservedQuantity，对应“已锁定库存发货”。
                 double consume = Math.min(reserved, remaining);
                 inv.setReservedQuantity(reserved - consume);
                 inv.setQuantity(Math.max(0, safeNumber(inv.getQuantity()) - consume));
@@ -486,6 +560,8 @@ public class OrderWorkflowService {
                 if (remaining <= 0) {
                     break;
                 }
+
+                // 第二阶段：若预留不够，再从可用库存中补扣，增强流程容错性。
                 double available = Math.max(0, safeNumber(inv.getQuantity()) - safeNumber(inv.getReservedQuantity()));
                 if (available <= 0) {
                     continue;
@@ -507,6 +583,7 @@ public class OrderWorkflowService {
     }
 
     private InventoryItem findOrCreateInventoryItem(Product product, Warehouse warehouse) {
+        // 查找指定产品在指定仓库的库存余额记录；不存在则初始化一条空记录。
         return inventoryItemRepository.findByProductId(product.getId()).stream()
                 .filter(item -> item.getWarehouse() != null && item.getWarehouse().getId() != null)
                 .filter(item -> item.getWarehouse().getId().equals(warehouse.getId()))
@@ -522,6 +599,8 @@ public class OrderWorkflowService {
     }
 
     private Warehouse resolveWarehouseForProduct(Long productId) {
+        // 优先复用现有库存项上的仓库；如果还没有库存记录，则按产品类型选择默认仓库。
+        // 这体现了“领域默认值”设计：原材料进原材料仓，成品进成品仓。
         Warehouse existing = inventoryItemRepository.findByProductId(productId).stream()
                 .map(InventoryItem::getWarehouse)
                 .filter(warehouse -> warehouse != null && warehouse.getId() != null)
@@ -586,6 +665,9 @@ public class OrderWorkflowService {
                                         String createdByName,
                                         String remark,
                                         String lot) {
+        // 统一的库存流水创建入口。
+        // 使用多层重载方法，是为了兼顾不同调用场景：
+        // 有的只知道 createdBy，有的拿到了完整 operatorUser，有的需要 lot / remark，有的不需要。
         StockTransaction tx = new StockTransaction();
         tx.setTransactionNo("ST-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT));
         tx.setProduct(product);
@@ -607,6 +689,8 @@ public class OrderWorkflowService {
     }
 
     private double totalAvailableByProduct(Long productId) {
+        // 可用库存 = quantity - reservedQuantity。
+        // 这是仓储履约判断中的核心指标，比单纯 quantity 更准确。
         return inventoryItemRepository.findByProductId(productId).stream()
                 .mapToDouble(item -> Math.max(0, safeNumber(item.getQuantity()) - safeNumber(item.getReservedQuantity())))
                 .sum();

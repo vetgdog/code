@@ -37,16 +37,48 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.UUID;
 
+/**
+ * 采购工作流服务。
+ *
+ * <p>该服务把采购业务从“采购经理建单”到“供应商接单/拒绝/发货”再到“仓库收货入库”串成一条完整状态链。
+ * 它不仅维护采购单状态，还会联动采购申请、库存余额、库存流水以及 WebSocket 通知，因此是典型的事务型工作流服务。</p>
+ *
+ * <p>从设计上看，这里采用显式状态常量 + 单方法推进一步状态的方式，优点是每个节点职责清晰、易于做权限和测试；
+ * 缺点是当状态继续增多时，可能需要演进成更正式的状态机封装。</p>
+ */
 @Service
 public class ProcurementWorkflowService {
 
     private static final DateTimeFormatter PURCHASE_ORDER_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
 
+    /**
+     * 采购经理已建单，等待供应商确认是否接单。
+     */
     public static final String STATUS_WAITING_SUPPLIER = "待供应商确认";
+
+    /**
+     * 供应商接受采购任务，接下来可以进入发货环节。
+     */
     public static final String STATUS_SUPPLIER_ACCEPTED = "供应商已接单";
+
+    /**
+     * 供应商拒单，采购侧需要重新处理供应关系或重新建单。
+     */
     public static final String STATUS_SUPPLIER_REJECTED = "供应商已拒绝";
+
+    /**
+     * 供应商已发货，但仓库尚未确认实物入库。
+     */
     public static final String STATUS_SUPPLIER_SHIPPED = "供应商已发货";
+
+    /**
+     * 采购侧已通知仓库到货，等待仓库执行确认收货。
+     */
     public static final String STATUS_WAITING_WAREHOUSE_RECEIPT = "待仓库收货";
+
+    /**
+     * 仓库确认收货并完成库存入账，采购单流程闭环结束。
+     */
     public static final String STATUS_WAREHOUSED = "已入库";
 
     @Autowired
@@ -73,6 +105,12 @@ public class ProcurementWorkflowService {
     @Autowired
     private NotificationService notificationService;
 
+    /**
+     * 创建采购单。
+     *
+     * <p>该方法会同时完成：供应商校验、原材料合法性校验、明细标准化、金额汇总、状态初始化以及源采购申请转单标记。
+     * 因为这些动作必须一起成功或一起失败，所以放在一个事务里处理。</p>
+     */
     @Transactional
     public PurchaseOrder createPurchaseOrder(PurchaseOrder purchaseOrder, String operator) {
         if (purchaseOrder == null) {
@@ -93,6 +131,9 @@ public class ProcurementWorkflowService {
         double totalAmount = 0.0;
         List<PurchaseOrderItem> items = new ArrayList<>();
         for (PurchaseOrderItem rawItem : purchaseOrder.getItems()) {
+
+            // 前端传回来的采购明细只当作“意图输入”，真正用于落单的 Product 必须重新查库确认，
+            // 这样可防止前端伪造产品类型、供应商信息或价格字段。
             if (rawItem == null || rawItem.getProduct() == null || rawItem.getProduct().getId() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购明细缺少原材料信息");
             }
@@ -116,6 +157,8 @@ public class ProcurementWorkflowService {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "采购单价不能小于0");
             }
 
+            // 这里重建 item 而不是直接复用前端对象，是一种典型的“服务端标准化组装”写法，
+            // 便于统一补齐 purchaseOrder、lineTotal 等由后端控制的字段。
             PurchaseOrderItem item = new PurchaseOrderItem();
             item.setPurchaseOrder(purchaseOrder);
             item.setProduct(product);
@@ -135,6 +178,9 @@ public class ProcurementWorkflowService {
         purchaseOrder.setOrderDate(purchaseOrder.getOrderDate() == null ? LocalDateTime.now() : purchaseOrder.getOrderDate());
         purchaseOrder.setCreatedAt(purchaseOrder.getCreatedAt() == null ? LocalDateTime.now() : purchaseOrder.getCreatedAt());
         PurchaseOrder saved = purchaseOrderRepository.save(purchaseOrder);
+
+        // 若采购单来源于采购申请，这里会把上游申请状态同步改成 CONVERTED，
+        // 避免同一申请被重复转单。
         markSourceRequestsConverted(saved);
 
         notificationService.broadcast(
@@ -150,6 +196,9 @@ public class ProcurementWorkflowService {
         return saved;
     }
 
+    /**
+     * 供应商对采购单做接单/拒单决策。
+     */
     @Transactional
     public PurchaseOrder supplierDecision(Long purchaseOrderId, String decision, String operator, String note) {
         PurchaseOrder order = getOrder(purchaseOrderId);
@@ -162,6 +211,9 @@ public class ProcurementWorkflowService {
         }
 
         order.setSupplierNote(blankToNull(note));
+
+        // 供应商决策只允许从 WAITING_SUPPLIER 进入 ACCEPT/REJECT，
+        // 这是采购状态机最基本的单向流转规则。
         if ("ACCEPT".equals(normalizedDecision)) {
             order.setStatus(STATUS_SUPPLIER_ACCEPTED);
             notifyProcurementManager(order, "PROCUREMENT_ORDER_ACCEPTED", operator, "采购单 " + order.getPoNo() + " 供应商已接单。", note);
@@ -174,6 +226,11 @@ public class ProcurementWorkflowService {
         return saved;
     }
 
+    /**
+     * 供应商发货。
+     *
+     * <p>这里只推进采购单状态，不直接影响库存；库存变更必须等仓库确认实物到货后再入账。</p>
+     */
     @Transactional
     public PurchaseOrder supplierShip(Long purchaseOrderId, String operator, String note) {
         PurchaseOrder order = getOrder(purchaseOrderId);
@@ -190,6 +247,9 @@ public class ProcurementWorkflowService {
         return saved;
     }
 
+    /**
+     * 采购经理通知仓库准备收货。
+     */
     @Transactional
     public PurchaseOrder notifyWarehouseForReceipt(Long purchaseOrderId, String operator, String note) {
         PurchaseOrder order = getOrder(purchaseOrderId);
@@ -215,6 +275,11 @@ public class ProcurementWorkflowService {
         return saved;
     }
 
+    /**
+     * 仓库确认收货并自动入库。
+     *
+     * <p>这是采购流程中最关键的有库存副作用节点：每条采购明细都会落到对应仓库库存，并同步生成 IN 类型库存流水。</p>
+     */
     @Transactional
     public PurchaseOrder warehouseReceive(Long purchaseOrderId, String operator, String note) {
         PurchaseOrder order = getOrder(purchaseOrderId);
@@ -231,6 +296,9 @@ public class ProcurementWorkflowService {
             if (product == null || product.getId() == null) {
                 continue;
             }
+
+            // 入哪个仓库不是前端传入决定，而是由系统根据已有库存分布或默认仓规则自动解析，
+            // 避免采购收货时把同一种原材料分散入错仓。
             Warehouse warehouse = resolveWarehouseForProduct(product.getId());
             InventoryItem inventoryItem = findOrCreateInventoryItem(product, warehouse);
             inventoryItem.setQuantity(safeNumber(inventoryItem.getQuantity()) + safeNumber(item.getQuantity()));
@@ -250,6 +318,9 @@ public class ProcurementWorkflowService {
         return saved;
     }
 
+    /**
+     * 按角色列采购单：供应商只能看自己的单，其他角色看全量。
+     */
     public List<PurchaseOrder> listOrders(String role, String email) {
         String normalizedRole = safe(role).toUpperCase(Locale.ROOT);
         if (normalizedRole.contains("SUPPLIER")) {
@@ -259,6 +330,11 @@ public class ProcurementWorkflowService {
         return purchaseOrderRepository.findAllByOrderByOrderDateDesc();
     }
 
+    /**
+     * 构建供应商首页摘要。
+     *
+     * <p>该方法聚合待确认、待发货、已发货等统计指标，并补充推荐原材料和待办采购单，方便供应商登录后快速把握当前工作量。</p>
+     */
     public SupplierDashboardDto buildSupplierDashboard(String email) {
         User supplier = resolveSupplierAccount(email);
         List<PurchaseOrder> orders = purchaseOrderRepository.findBySupplierIdOrderByOrderDateDesc(supplier.getId());
@@ -297,6 +373,11 @@ public class ProcurementWorkflowService {
         );
     }
 
+    /**
+     * 构建采购导出行。
+     *
+     * <p>导出时按“采购单 + 明细”展开成扁平行，方便 Excel 报表消费；若没有明细，则仍输出一行主单信息保证记录不丢失。</p>
+     */
     public List<ProcurementExportRowDto> buildExportRows(List<PurchaseOrder> orders) {
         List<ProcurementExportRowDto> rows = new ArrayList<>();
         for (PurchaseOrder order : orders) {
@@ -345,17 +426,28 @@ public class ProcurementWorkflowService {
         return rows;
     }
 
+    /**
+     * 查询待仓库收货的采购单，供仓库页面聚焦处理待办。
+     */
     public List<PurchaseOrder> listPendingWarehouseReceipts() {
         return purchaseOrderRepository.findAllByOrderByOrderDateDesc().stream()
                 .filter(order -> STATUS_WAITING_WAREHOUSE_RECEIPT.equals(safe(order.getStatus())))
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 按主键读取采购单，不存在则抛 404。
+     */
     private PurchaseOrder getOrder(Long purchaseOrderId) {
         return purchaseOrderRepository.findById(purchaseOrderId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "采购单不存在: " + purchaseOrderId));
     }
 
+    /**
+     * 将源采购申请标记为已转单。
+     *
+     * <p>这一步保证采购申请与采购单之间形成可追溯关系，并防止同一 OPEN 申请被重复转换为多张采购单。</p>
+     */
     private void markSourceRequestsConverted(PurchaseOrder order) {
         if (order == null || order.getSourceRequestIds() == null || order.getSourceRequestIds().isEmpty()) {
             return;
@@ -382,6 +474,9 @@ public class ProcurementWorkflowService {
         purchaseRequestRepository.saveAll(requests);
     }
 
+    /**
+     * 在采购申请备注中附加“已生成采购单”信息，方便回溯上游来源。
+     */
     private String appendConversionNote(String existingNote, String poNo) {
         String conversionNote = "已生成采购单：" + safe(poNo);
         if (safe(existingNote).isEmpty()) {
@@ -393,6 +488,11 @@ public class ProcurementWorkflowService {
         return existingNote.trim() + "；" + conversionNote;
     }
 
+    /**
+     * 生成采购单号。
+     *
+     * <p>编码由时间戳 + 随机后缀组成，并做最多 10 次存在性重试，平衡可读性与冲突概率。</p>
+     */
     private String generatePurchaseOrderNo() {
         for (int attempt = 0; attempt < 10; attempt++) {
             String suffix = UUID.randomUUID().toString().substring(0, 4).toUpperCase(Locale.ROOT);
@@ -404,6 +504,9 @@ public class ProcurementWorkflowService {
         throw new ResponseStatusException(HttpStatus.CONFLICT, "采购单号生成失败，请稍后重试");
     }
 
+    /**
+     * 解析当前供应商账号，并强制其必须具备供应商角色。
+     */
     public User resolveSupplierAccount(String email) {
         String normalizedEmail = safe(email).toLowerCase(Locale.ROOT);
         if (normalizedEmail.isEmpty()) {
@@ -414,6 +517,9 @@ public class ProcurementWorkflowService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号不是供应商账号"));
     }
 
+    /**
+     * 通知采购经理关注采购单状态变化。
+     */
     private void notifyProcurementManager(PurchaseOrder order, String messageType, String operator, String title, String note) {
         notificationService.broadcast(
                 "/topic/procurement/manager",
@@ -421,16 +527,25 @@ public class ProcurementWorkflowService {
         );
     }
 
+    /**
+     * 构建采购流程通用消息体。
+     */
     private NotificationMessage buildOrderMessage(String type, PurchaseOrder order, String operator) {
         ProcurementEvent event = new ProcurementEvent(order, operator, "", "");
         return new NotificationMessage(type, "PurchaseOrder", order.getId(), event, LocalDateTime.now());
     }
 
+    /**
+     * 构建带标题与摘要信息的采购消息体，方便前端通知栏直接渲染。
+     */
     private NotificationMessage buildOrderMessage(String type, PurchaseOrder order, String operator, String notificationTitle, String notificationMeta) {
         ProcurementEvent event = new ProcurementEvent(order, operator, notificationTitle, notificationMeta);
         return new NotificationMessage(type, "PurchaseOrder", order.getId(), event, LocalDateTime.now());
     }
 
+    /**
+     * 为供应商构造专属 topic，支持按账号精准推送采购单通知。
+     */
     private String resolveSupplierTopic(User supplier) {
         if (supplier == null || supplier.getEmail() == null) {
             return "/topic/procurement/supplier";
@@ -442,6 +557,9 @@ public class ProcurementWorkflowService {
         return normalized.isEmpty() ? "/topic/procurement/supplier" : "/topic/procurement/supplier/" + normalized;
     }
 
+    /**
+     * 将采购单明细压缩成一段可读摘要，适合消息通知、看板卡片和导出备注使用。
+     */
     private String buildLineSummary(PurchaseOrder order) {
         if (order.getItems() == null || order.getItems().isEmpty()) {
             return "暂无采购明细";
@@ -451,6 +569,11 @@ public class ProcurementWorkflowService {
                 .collect(Collectors.joining("；"));
     }
 
+    /**
+     * 解析供应商首页推荐原材料。
+     *
+     * <p>优先展示该供应商绑定的原材料；如果主数据尚未维护绑定关系，则退化为从历史采购单里反推，提升首页可用性。</p>
+     */
     private List<SupplierDashboardDto.RecommendedMaterial> resolveRecommendedMaterials(User supplier, List<PurchaseOrder> orders) {
         Map<Long, Product> recommended = new LinkedHashMap<>();
 
@@ -483,6 +606,12 @@ public class ProcurementWorkflowService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 判断某原材料是否属于该供应商。
+     *
+     * <p>当前通过 preferredSupplier 文本模糊匹配供应商名称/编码/邮箱，优点是兼容历史数据，
+     * 缺点是规范性较弱，未来更稳妥的做法是建立显式外键或中间表关联。</p>
+     */
     public boolean isSupplierRelatedMaterial(Product product, User supplier) {
         if (product == null || supplier == null) {
             return false;
@@ -496,6 +625,9 @@ public class ProcurementWorkflowService {
                 || (!supplierEmail.isEmpty() && preferredSupplier.contains(supplierEmail));
     }
 
+    /**
+     * 查询已绑定原材料的供应商列表，供采购页面下拉选择或统计展示使用。
+     */
     public List<User> listSuppliersBoundToRawMaterials() {
         List<Product> rawMaterials = productRepository.findAll().stream()
                 .filter(product -> "RAW_MATERIAL".equalsIgnoreCase(product.getProductType()))
@@ -508,6 +640,9 @@ public class ProcurementWorkflowService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 判断用户是否具备供应商角色。
+     */
     private boolean isSupplierUser(User user) {
         return user != null
                 && user.getRoles() != null
@@ -516,6 +651,9 @@ public class ProcurementWorkflowService {
                 .anyMatch("ROLE_SUPPLIER"::equals);
     }
 
+    /**
+     * 供应商展示名优先级：全名 -> 用户名 -> 邮箱。
+     */
     private String supplierDisplayName(User supplier) {
         if (supplier == null) {
             return "";
@@ -531,10 +669,16 @@ public class ProcurementWorkflowService {
         return safe(supplier.getEmail());
     }
 
+    /**
+     * 判断原材料是否维护了首选供应商信息。
+     */
     private boolean hasMaintainedSupplier(Product product) {
         return product != null && !safe(product.getPreferredSupplier()).isEmpty();
     }
 
+    /**
+     * 查找或创建产品-仓库维度的库存记录。
+     */
     private InventoryItem findOrCreateInventoryItem(Product product, Warehouse warehouse) {
         return inventoryItemRepository.findByProductId(product.getId()).stream()
                 .filter(item -> item.getWarehouse() != null && item.getWarehouse().getId() != null)
@@ -550,6 +694,12 @@ public class ProcurementWorkflowService {
                 });
     }
 
+    /**
+     * 为采购入库解析目标仓库。
+     *
+     * <p>优先复用该物料已有库存所在仓库；若尚无库存，则根据原材料/成品默认仓规则选仓，
+     * 最后再兜底取最小 id 仓库，确保采购收货流程不会因缺少显式仓库选择而中断。</p>
+     */
     private Warehouse resolveWarehouseForProduct(Long productId) {
         Warehouse existing = inventoryItemRepository.findByProductId(productId).stream()
                 .map(InventoryItem::getWarehouse)
@@ -568,6 +718,9 @@ public class ProcurementWorkflowService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "未配置仓库，无法完成采购入库"));
     }
 
+    /**
+     * 创建库存流水，使采购收货带来的库存变化具备完整审计链。
+     */
     private void createStockTransaction(Product product,
                                         Warehouse warehouse,
                                         double quantity,
@@ -591,6 +744,9 @@ public class ProcurementWorkflowService {
         stockTransactionRepository.save(tx);
     }
 
+    /**
+     * 统一解析操作人显示名：优先真实姓名，缺失时回退备用值。
+     */
     private String resolveDisplayName(User user, String fallback) {
         if (user != null && user.getName() != null && !user.getName().isBlank()) {
             return user.getName();
@@ -618,6 +774,11 @@ public class ProcurementWorkflowService {
         return safe(value).isEmpty() ? null : value.trim();
     }
 
+    /**
+     * 推送给前端的采购事件载荷。
+     *
+     * <p>同时携带采购单、操作人和通知摘要，便于前端不同页面按需渲染列表、详情和消息提醒。</p>
+     */
     public static class ProcurementEvent {
         private final PurchaseOrder order;
         private final String operator;

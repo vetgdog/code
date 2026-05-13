@@ -1,14 +1,17 @@
 server:
+  # 后端服务默认监听端口。前端 Vite 开发服务通常通过代理转发到这里。
   port: 8085
 
 spring:
   datasource:
+    # 当前项目默认使用 MySQL，本地开发通过字符集与时区参数减少中文和时间序列化问题。
     url: jdbc:mysql://localhost:3306/code?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&useUnicode=true&characterEncoding=utf8
     username: root
     password: 1234
     driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
     hibernate:
+      # update 适合开发阶段快速演进表结构；生产环境通常建议改为显式迁移方案（Flyway/Liquibase）。
       ddl-auto: update
     show-sql: false
     properties:
@@ -16,9 +19,11 @@ spring:
         format_sql: true
   sql:
     init:
+      # 关闭 Spring SQL 自动初始化，避免和项目中的自定义补数脚本/启动初始化器相互干扰。
       mode: never
   jackson:
     serialization:
+      # 某些懒加载代理或空对象序列化时不抛错，降低接口返回阶段的 Jackson 噪音。
       fail-on-empty-beans: false
 
 logging:
@@ -26,13 +31,17 @@ logging:
     org.hibernate.SQL: WARN
 
 jwt:
+  # JWT 签名密钥。当前值仅适合开发环境，生产必须替换为更高强度且通过安全配置注入的密钥。
   secret: changeit_replace_in_production_with_secure_value_123456
+  # Token 过期时间，单位毫秒，这里为 1 小时。
   expiration-ms: 3600000
 
 app:
   init:
     raw-materials:
+      # 是否在启动时自动补默认原材料主数据。
       enabled: false
     demo-master-data:
+      # 是否在启动时自动补演示账号、仓库、产品和空库存记录。
       enabled: false
 

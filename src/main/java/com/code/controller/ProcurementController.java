@@ -51,6 +51,18 @@ import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/v1/procurement")
+/*
+ * 采购模块控制器。
+ *
+ * <p>该类同时承接三类核心业务：
+ * 1. 采购订单流转（采购管理员、供应商、仓库协同）；
+ * 2. 原材料档案维护（供应商 / 采购 / 仓库按权限维护）；
+ * 3. 周采购计划与采购导出视图。</p>
+ *
+ * <p>它是系统中典型的“多角色协同 Controller”：
+ * 不同接口分别面向供应商、采购管理员、仓库管理员，
+ * 因此在设计上大量依赖 @PreAuthorize 和 Authentication 来做角色边界与数据范围裁剪。</p>
+ */
 public class ProcurementController {
 
     private static final DataFormatter DATA_FORMATTER = new DataFormatter();
@@ -99,6 +111,11 @@ public class ProcurementController {
 
     @GetMapping("/orders")
     @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')")
+    // 查询采购订单列表。
+    // 该接口并不是简单查表，而是会根据当前登录人的角色决定能看到哪些采购单：
+    // - 供应商只看与自己相关的订单；
+    // - 采购管理员看采购全局；
+    // - 仓库管理员看与收货有关的订单。
     public List<PurchaseOrder> listOrders(@RequestParam(required = false) String keyword,
                                           @RequestParam(required = false) String status,
                                           @RequestParam(required = false) String startDate,
@@ -109,6 +126,9 @@ public class ProcurementController {
 
     @GetMapping("/orders/export")
     @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','ADMIN')")
+    // 导出采购订单。
+    // 这里复用和列表接口同一套筛选逻辑，保证“页面可见数据”和“导出数据”口径一致，
+    // 防止用户通过导出接口获取超权限数据。
     public ResponseEntity<?> exportOrders(@RequestParam(required = false) String keyword,
                                           @RequestParam(required = false) String status,
                                           @RequestParam(required = false) String startDate,
@@ -126,6 +146,9 @@ public class ProcurementController {
 
     @GetMapping("/dashboard")
     @PreAuthorize("hasAnyRole('SUPPLIER','ADMIN')")
+    // 供应商工作台。
+    // 返回的不是数据库表原样数据，而是 SupplierDashboardDto 聚合视图，
+    // 目的是把“待处理订单、推荐原材料、统计计数”等供应商真正关心的信息一次性返回给前端。
     public SupplierDashboardDto getSupplierDashboard(Authentication authentication) {
         String email = authentication == null ? "" : authentication.getName();
         return procurementWorkflowService.buildSupplierDashboard(email);
@@ -318,6 +341,9 @@ public class ProcurementController {
 
     @GetMapping("/raw-materials")
     @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')")
+    // 查询原材料档案。
+    // 这里把原材料视为 Product 中 product_type = RAW_MATERIAL 的子集，
+    // 而不是单独拆一张主数据表，是一种“统一产品主数据模型”的设计。
     public List<Product> listRawMaterials(@RequestParam(required = false) String keyword,
                                           @RequestParam(required = false) String startDate,
                                           @RequestParam(required = false) String endDate,
@@ -344,6 +370,8 @@ public class ProcurementController {
 
     @GetMapping("/raw-materials/{id}")
     @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')")
+    // 查询单个原材料详情。
+    // 除了主键存在性校验，还会做供应商数据范围校验，避免供应商越权查看不属于自己的原材料。
     public Product getRawMaterial(@PathVariable Long id, Authentication authentication) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在: " + id));
@@ -359,6 +387,11 @@ public class ProcurementController {
 
     @PostMapping("/raw-materials")
     @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')")
+    // 新增原材料。
+    // 核心处理要点：
+    // 1. 自动分配 SKU；
+    // 2. 校验字段合法性；
+    // 3. 若当前操作者是供应商，则自动把 preferredSupplier 绑定为当前供应商。
     public ResponseEntity<Product> createRawMaterial(@RequestBody RawMaterialRequest request, Authentication authentication) {
         assignRawMaterialSku(request);
         validateRawMaterialRequest(request);
@@ -370,6 +403,9 @@ public class ProcurementController {
 
     @PutMapping("/raw-materials/{id}")
     @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')")
+    // 修改原材料。
+    // 这里显式保留 existing SKU，不允许通过更新接口修改编号，
+    // 避免主数据编码在外部引用后被随意篡改。
     public ResponseEntity<Product> updateRawMaterial(@PathVariable Long id,
                                                      @RequestBody RawMaterialRequest request,
                                                      Authentication authentication) {
@@ -383,6 +419,9 @@ public class ProcurementController {
 
     @DeleteMapping("/raw-materials/{id}")
     @PreAuthorize("hasAnyRole('SUPPLIER','WAREHOUSE_MANAGER','ADMIN')")
+    // 删除原材料。
+    // 删除前会检查是否已被采购申请、采购订单、库存、MRP、领料申请、批次等业务数据引用。
+    // 这是典型的“业务删除保护”设计，比单纯依赖外键报错更友好，也更可解释。
     public ResponseEntity<Void> deleteRawMaterial(@PathVariable Long id, Authentication authentication) {
         Product existing = findAccessibleRawMaterial(id, authentication);
         assertRawMaterialCanBeDeleted(existing);
@@ -392,6 +431,8 @@ public class ProcurementController {
 
     @GetMapping("/raw-materials/template")
     @PreAuthorize("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','ADMIN')")
+    // 下载原材料导入模板。
+    // 通过 Apache POI 动态生成 Excel，避免静态模板文件与代码字段定义脱节。
     public ResponseEntity<byte[]> downloadRawMaterialTemplate() {
         try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
             Sheet sheet = workbook.createSheet("raw-material-template");
@@ -428,6 +469,9 @@ public class ProcurementController {
 
     @PostMapping(value = "/raw-materials/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @PreAuthorize("hasAnyRole('SUPPLIER','ADMIN')")
+    // Excel 批量导入原材料。
+    // 采用“逐行解析 + 累积错误”的方式，而不是一行失败就整体中断，
+    // 更符合企业批量主数据导入场景下的可运维性要求。
     public ResponseEntity<ImportResult> importRawMaterials(@RequestParam("file") MultipartFile file,
                                                            Authentication authentication) {
         if (file == null || file.isEmpty()) {
@@ -480,6 +524,8 @@ public class ProcurementController {
     }
 
     private Product buildRawMaterial(Product target, RawMaterialRequest request) {
+        // 统一的原材料实体赋值方法。
+        // 创建和更新都复用这一套映射规则，避免字段映射逻辑在多个方法里重复散落。
         target.setSku(request.getSku().trim().toUpperCase(Locale.ROOT));
         target.setName(request.getName().trim());
         target.setProductType("RAW_MATERIAL");
@@ -496,6 +542,7 @@ public class ProcurementController {
     }
 
     private Product findAccessibleRawMaterial(Long id, Authentication authentication) {
+        // 先校验原材料存在，再校验当前用户是否有访问该原材料的范围权限。
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在: " + id));
         if (!isRawMaterial(product)) {
@@ -509,6 +556,7 @@ public class ProcurementController {
     }
 
     private void assertRawMaterialCanBeDeleted(Product product) {
+        // 企业主数据删除保护：只要已经进入任一业务链路，就禁止物理删除。
         if (product == null || product.getId() == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "原材料不存在");
         }
@@ -537,6 +585,8 @@ public class ProcurementController {
     }
 
     private void applySupplierScope(RawMaterialRequest request, Authentication authentication) {
+        // 如果当前登录人是供应商，则强制把首选供应商绑定为当前供应商名称，
+        // 防止供应商伪造其它供应商身份创建或修改原材料。
         User currentSupplier = resolveCurrentSupplier(authentication);
         if (currentSupplier != null && request != null) {
             request.setPreferredSupplier(currentSupplier.getName());
@@ -544,6 +594,7 @@ public class ProcurementController {
     }
 
     private void assignRawMaterialSku(RawMaterialRequest request) {
+        // 新增场景下由系统统一生成 SKU，减少人工维护成本并避免编号冲突。
         if (request == null) {
             return;
         }
@@ -551,6 +602,8 @@ public class ProcurementController {
     }
 
     private String generateRawMaterialSku() {
+        // 采用 UUID 方案快速生成唯一编号。
+        // 简单高效，但可读性较弱；如果后续有更强业务语义要求，可改为规则编码生成器。
         for (int attempt = 0; attempt < 10; attempt++) {
             String candidate = UUID.randomUUID().toString().toUpperCase(Locale.ROOT);
             if (productRepository.findBySkuIgnoreCase(candidate).isEmpty()) {
@@ -561,6 +614,8 @@ public class ProcurementController {
     }
 
     private void validateRawMaterialRequest(RawMaterialRequest request) {
+        // 原材料主数据统一校验入口。
+        // 这里把数值非负、名称必填、SKU 必填等基础规则集中收口，避免创建/更新逻辑各写一遍。
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "原材料数据不能为空");
         }
