@@ -141,7 +141,7 @@ public class InventoryController {
      * 而是直接复用库存流水实体作为请求体，因此前端一次提交既能表达库存动作，也能附带批次、备注等审计字段。</p>
      */
     @PostMapping("/stock-in")
-    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public InventoryItem stockIn(@RequestBody StockTransaction tx, Authentication authentication) {
         Product product = requireProduct(tx);
         Warehouse warehouse = requireWarehouse(tx);
@@ -178,7 +178,7 @@ public class InventoryController {
      * 生产等流程锁定的库存再次被人工扣减，是库存一致性最核心的规则之一。</p>
      */
     @PostMapping("/stock-out")
-    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public InventoryItem stockOut(@RequestBody StockTransaction tx, Authentication authentication) {
         Product product = requireProduct(tx);
         Warehouse warehouse = requireWarehouse(tx);

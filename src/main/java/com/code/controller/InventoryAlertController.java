@@ -130,6 +130,7 @@ public class InventoryAlertController {
      * 直接转成“执行对象”，缩短仓库与生产之间的沟通路径。保存后会向生产相关主题广播，让生产看板实时刷新。</p>
      */
     @PostMapping("/finished-goods/{productId}/production-plan")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public ProductionPlan createProductionPlan(@PathVariable Long productId,
                                                @RequestBody(required = false) AlertActionRequest request,
                                                Authentication authentication) {
@@ -182,6 +183,7 @@ public class InventoryAlertController {
      * 说明系统在流程上仍保留采购经理审核/合单/选供应商这一步，避免仓库预警直接越权下采购单。</p>
      */
     @PostMapping("/raw-materials/{productId}/purchase-request")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public PurchaseRequest createPurchaseRequest(@PathVariable Long productId,
                                                  @RequestBody(required = false) AlertActionRequest request,
                                                  Authentication authentication) {

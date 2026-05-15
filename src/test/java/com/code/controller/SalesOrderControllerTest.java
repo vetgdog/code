@@ -17,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
@@ -25,8 +26,11 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -115,6 +119,20 @@ class SalesOrderControllerTest {
         String csv = new String(body, 3, body.length - 3, StandardCharsets.UTF_8);
         assertTrue(csv.contains("已完成"));
         assertTrue(csv.contains("杭州客户"));
+    }
+
+    @Test
+    void createRejectsAdminFromCreatingSalesOrders() {
+        SalesOrder order = new SalesOrder();
+        order.setOrderNo("SO-ADMIN-001");
+
+        doReturn(List.of(new SimpleGrantedAuthority("ROLE_ADMIN"))).when(authentication).getAuthorities();
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> salesOrderController.create(order, authentication));
+
+        assertEquals(403, exception.getStatus().value());
+        verify(salesOrderRepository, never()).save(order);
     }
 }
 

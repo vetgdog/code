@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-6">
-    <section class="panel-surface p-6">
+    <section v-if="canManageProducts" class="panel-surface p-6">
       <div class="flex items-center justify-between gap-4">
         <div>
           <h3 class="text-lg font-bold text-black tracking-tight">产品档案管理</h3>
@@ -17,11 +17,15 @@
       <div v-if="productError" class="mt-3 text-sm text-rose-300">{{ productError }}</div>
     </section>
 
+    <section v-else class="panel-surface p-6 text-sm text-black">
+      当前角色仅支持查看成品档案，不能新增、编辑或删除产品。
+    </section>
+
     <section class="panel-surface overflow-hidden">
       <div class="panel-header flex items-center justify-between">
         <div>
           <h3 class="text-base font-bold text-white">产品列表</h3>
-          <p class="mt-1 text-xs text-cyan-100/70">共 {{ products.length }} 个产品</p>
+          <p class="mt-1 text-xs text-black">共 {{ products.length }} 个产品</p>
         </div>
         <button class="neo-button-secondary" @click="loadProducts">刷新</button>
       </div>
@@ -34,7 +38,7 @@
               <th>名称</th>
               <th>单位</th>
               <th>单价</th>
-              <th>操作</th>
+              <th v-if="canManageProducts">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -43,7 +47,7 @@
               <td>{{ product.name }}</td>
               <td>{{ product.unit || '-' }}</td>
               <td>¥{{ formatAmount(product.unitPrice) }}</td>
-              <td>
+              <td v-if="canManageProducts">
                 <button class="text-cyan-300 text-xs mr-3" @click="prepareEditProduct(product)">编辑</button>
                 <button class="text-rose-300 text-xs" @click="handleDeleteProduct(product.id)">删除</button>
               </td>
@@ -53,7 +57,7 @@
       </div>
     </section>
 
-    <section v-if="editingProductId" class="panel-surface p-6">
+    <section v-if="canManageProducts && editingProductId" class="panel-surface p-6">
       <h3 class="text-base font-bold text-white">编辑产品</h3>
       <form class="mt-4 grid grid-cols-1 md:grid-cols-4 gap-3" @submit.prevent="handleUpdateProduct">
         <input v-model="editProductForm.sku" placeholder="SKU" class="neo-input" required />
@@ -70,9 +74,12 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { productApi } from '../api/services.js';
+import { useAuthStore } from '../store/auth.js';
 
+const auth = useAuthStore();
+const canManageProducts = computed(() => auth.hasPermission('products:manage'));
 const products = ref([]);
 const productMessage = ref('');
 const productError = ref('');
@@ -90,6 +97,10 @@ const loadProducts = async () => {
 };
 
 const handleCreateProduct = async () => {
+  if (!canManageProducts.value) {
+    productError.value = '当前角色仅支持查看产品档案，不能新增产品。';
+    return;
+  }
   productMessage.value = '';
   productError.value = '';
   try {
@@ -111,6 +122,9 @@ const handleCreateProduct = async () => {
 };
 
 const prepareEditProduct = (product) => {
+  if (!canManageProducts.value) {
+    return;
+  }
   editingProductId.value = product.id;
   editProductForm.sku = product.sku || '';
   editProductForm.name = product.name || '';
@@ -127,6 +141,10 @@ const cancelEditProduct = () => {
 };
 
 const handleUpdateProduct = async () => {
+  if (!canManageProducts.value) {
+    productError.value = '当前角色仅支持查看产品档案，不能修改产品。';
+    return;
+  }
   productMessage.value = '';
   productError.value = '';
   try {
@@ -145,6 +163,10 @@ const handleUpdateProduct = async () => {
 };
 
 const handleDeleteProduct = async (id) => {
+  if (!canManageProducts.value) {
+    productError.value = '当前角色仅支持查看产品档案，不能删除产品。';
+    return;
+  }
   productMessage.value = '';
   productError.value = '';
   try {

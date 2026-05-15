@@ -9,10 +9,11 @@
         <div class="flex items-center gap-3">
           <input v-model="referenceDate" type="date" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" />
           <button class="rounded border border-primary text-primary px-3 py-2 text-sm font-semibold" @click="loadCurrentPlan">刷新</button>
-          <button class="rounded bg-primary text-white px-3 py-2 text-sm font-semibold" @click="regeneratePlan">重新生成</button>
+          <button v-if="canGenerateProcurementPlan" class="rounded bg-primary text-white px-3 py-2 text-sm font-semibold" @click="regeneratePlan">重新生成</button>
         </div>
       </div>
       <div class="p-5">
+        <div v-if="!canGenerateProcurementPlan" class="mb-3 text-xs text-on-surface-variant">系统管理员在此页面仅支持查看当前与历史采购计划，不可重新生成计划。</div>
         <div v-if="message" class="mb-3 text-xs text-emerald-600">{{ message }}</div>
         <div v-if="error" class="mb-3 text-xs text-error">{{ error }}</div>
         <div v-if="loading" class="text-sm text-on-surface-variant">加载中...</div>
@@ -115,9 +116,12 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { procurementApi } from '../api/services.js';
 import { useRealtimeStore } from '../store/realtime.js';
+import { useAuthStore } from '../store/auth.js';
 
+const auth = useAuthStore();
 const realtime = useRealtimeStore();
 const today = new Date().toISOString().slice(0, 10);
+const canGenerateProcurementPlan = computed(() => auth.hasPermission('procurement:plan:generate'));
 
 const referenceDate = ref(today);
 const currentPlan = ref(null);
@@ -143,6 +147,10 @@ const loadCurrentPlan = async () => {
 };
 
 const regeneratePlan = async () => {
+  if (!canGenerateProcurementPlan.value) {
+    error.value = '当前角色仅支持查看采购计划，不能重新生成计划。';
+    return;
+  }
   message.value = '';
   error.value = '';
   try {

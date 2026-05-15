@@ -93,7 +93,7 @@ public class QualityController {
      * 这也是事务边界应当所在的位置。</p>
      */
     @PostMapping("/batch/{batchId}/inspect")
-    @PreAuthorize("hasAnyRole('QUALITY_INSPECTOR','ADMIN')")
+    @PreAuthorize("hasRole('QUALITY_INSPECTOR')")
     public ResponseEntity<Batch> inspect(@PathVariable Long batchId,
                                          @RequestBody InspectRequest request,
                                          Authentication authentication) {

@@ -28,6 +28,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.ResponseEntity;
 import org.springframework.mock.web.MockMultipartFile;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.web.server.ResponseStatusException;
@@ -524,6 +525,21 @@ class ProcurementControllerTest {
         verify(productRepository, org.mockito.Mockito.times(2)).save(captor.capture());
         assertTrue(captor.getAllValues().stream().allMatch(product -> "供应商甲".equals(product.getPreferredSupplier())));
         assertTrue(response.getBody().getErrors().isEmpty());
+    }
+
+    @Test
+    void rawMaterialReadEndpointsShouldAllowAdminAccess() throws NoSuchMethodException {
+        PreAuthorize listAnnotation = ProcurementController.class
+                .getMethod("listRawMaterials", String.class, String.class, String.class, Authentication.class)
+                .getAnnotation(PreAuthorize.class);
+        PreAuthorize detailAnnotation = ProcurementController.class
+                .getMethod("getRawMaterial", Long.class, Authentication.class)
+                .getAnnotation(PreAuthorize.class);
+
+        assertNotNull(listAnnotation);
+        assertEquals("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')", listAnnotation.value());
+        assertNotNull(detailAnnotation);
+        assertEquals("hasAnyRole('SUPPLIER','PROCUREMENT_MANAGER','WAREHOUSE_MANAGER','ADMIN')", detailAnnotation.value());
     }
 
     private User supplierUser(Long id, String username, String fullName, String email) {

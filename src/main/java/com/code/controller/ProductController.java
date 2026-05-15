@@ -39,7 +39,7 @@ public class ProductController {
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyRole('ADMIN','SALES_MANAGER')")
+    @PreAuthorize("hasRole('SALES_MANAGER')")
     public ResponseEntity<?> create(@RequestBody Product product) {
         if (product == null || isBlank(product.getSku()) || isBlank(product.getName())) {
             return ResponseEntity.badRequest().body("SKU和产品名称为必填项");
@@ -59,7 +59,7 @@ public class ProductController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','SALES_MANAGER')")
+    @PreAuthorize("hasRole('SALES_MANAGER')")
     public ResponseEntity<?> update(@PathVariable Long id, @RequestBody Product request) {
         Product product = productRepository.findById(id)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "产品不存在: " + id));
@@ -90,7 +90,7 @@ public class ProductController {
     }
 
     @DeleteMapping("/{id}")
-    @PreAuthorize("hasAnyRole('ADMIN','SALES_MANAGER')")
+    @PreAuthorize("hasRole('SALES_MANAGER')")
     public ResponseEntity<?> delete(@PathVariable Long id) {
         if (!productRepository.existsById(id)) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "产品不存在: " + id);

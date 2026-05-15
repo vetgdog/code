@@ -78,7 +78,7 @@
               </div>
             </section>
 
-            <section v-if="selectedBatch" class="rounded-xl border border-outline-variant/20 bg-white p-5">
+            <section v-if="selectedBatch && canInspectQuality" class="rounded-xl border border-outline-variant/20 bg-white p-5">
               <h4 class="text-sm font-bold">提交质检结果</h4>
               <form class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4" @submit.prevent="submitInspection">
                 <select v-model="inspectionForm.result" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
@@ -97,6 +97,10 @@
               </form>
               <div v-if="message" class="mt-3 text-xs text-emerald-600">{{ message }}</div>
               <div v-if="submitError" class="mt-3 text-xs text-error">{{ submitError }}</div>
+            </section>
+
+            <section v-else-if="selectedBatch" class="rounded-xl border border-outline-variant/20 bg-slate-50 p-5 text-sm text-on-surface-variant">
+              当前为只读查看模式，系统管理员可查看批次详情与全部检验记录，但不能提交质检结果。
             </section>
 
             <section class="rounded-xl border border-outline-variant/20 bg-white overflow-hidden">
@@ -187,8 +191,11 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { qualityApi } from '../api/services.js';
 import { useRealtimeStore } from '../store/realtime.js';
+import { useAuthStore } from '../store/auth.js';
 
+const auth = useAuthStore();
 const realtime = useRealtimeStore();
+const canInspectQuality = computed(() => auth.hasPermission('quality:inspect'));
 
 const statuses = ['待检', '合格', '不合格'];
 
@@ -291,6 +298,10 @@ const reloadSelected = async () => {
 };
 
 const submitInspection = async () => {
+  if (!canInspectQuality.value) {
+    submitError.value = '当前角色仅支持查看质检记录，不能提交质检结果。';
+    return;
+  }
   if (!selectedBatch.value?.id) {
     submitError.value = '请先选择需要质检的批次。';
     return;

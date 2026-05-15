@@ -63,6 +63,7 @@ public class ProductionController {
     private OrderWorkflowService orderWorkflowService;
 
     @PostMapping("/tasks")
+    @PreAuthorize("hasRole('PRODUCTION_MANAGER')")
     /*
      * 创建生产任务。
      *
@@ -104,7 +105,7 @@ public class ProductionController {
     }
 
     @GetMapping("/plans/active")
-    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('PRODUCTION_MANAGER')")
     /*
      * 查询待执行生产计划。
      *
@@ -122,7 +123,7 @@ public class ProductionController {
     }
 
     @GetMapping("/plans/pending-stock-in")
-    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public List<ActiveProductionPlanView> listPendingInventoryAlertStockInPlans() {
         return orderWorkflowService.listInventoryAlertPlansPendingStockIn().stream()
                 .map(this::toActivePlanView)
@@ -130,7 +131,7 @@ public class ProductionController {
     }
 
     @PostMapping("/plans/{planId}/complete")
-    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('PRODUCTION_MANAGER')")
     public ProductionPlan completeInventoryAlertPlan(@PathVariable Long planId,
                                                      @RequestBody(required = false) PlanActionCommand request,
                                                      Authentication authentication) {
@@ -142,7 +143,7 @@ public class ProductionController {
     }
 
     @PostMapping("/plans/{planId}/warehouse-stock-in")
-    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public ProductionPlan confirmInventoryAlertPlanStockIn(@PathVariable Long planId,
                                                            @RequestBody(required = false) WarehouseReviewCommand request,
                                                            Authentication authentication) {
@@ -176,7 +177,7 @@ public class ProductionController {
     }
 
     @PostMapping("/material-requests")
-    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('PRODUCTION_MANAGER')")
     /*
      * 创建生产领料申请。
      *
@@ -200,7 +201,7 @@ public class ProductionController {
     }
 
     @PostMapping("/material-requests/{requestId}/warehouse-review")
-    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     /*
      * 仓库对生产领料申请做审核/出库处理。
      *
@@ -270,7 +271,7 @@ public class ProductionController {
     }
 
     @GetMapping("/quality-alerts")
-    @PreAuthorize("hasAnyRole('PRODUCTION_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('PRODUCTION_MANAGER')")
     /*
      * 查询生产相关质量预警。
      *
@@ -319,6 +320,7 @@ public class ProductionController {
     }
 
     @PostMapping("/tasks/{taskId}/status")
+    @PreAuthorize("hasRole('PRODUCTION_MANAGER')")
     /*
      * 更新生产任务状态。
      *

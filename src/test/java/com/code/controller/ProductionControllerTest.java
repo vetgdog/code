@@ -16,6 +16,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 
 import java.time.LocalDateTime;
@@ -168,6 +169,16 @@ class ProductionControllerTest {
         assertNotNull(result);
         assertEquals("PMR-PLAN-001", result.getRequestNo());
         verify(productionMaterialRequestService).createRequest(isNull(), eq(88L), any(), eq("库存预警补产先领料"), eq("prod@test.com"));
+    }
+
+    @Test
+    void listRecordOverviewShouldAllowAdminReadOnlyAccess() throws NoSuchMethodException {
+        PreAuthorize annotation = ProductionController.class
+                .getMethod("listRecordOverview", String.class, String.class, String.class, Authentication.class)
+                .getAnnotation(PreAuthorize.class);
+
+        assertNotNull(annotation);
+        assertEquals("hasAnyRole('PRODUCTION_MANAGER','ADMIN')", annotation.value());
     }
 }
 

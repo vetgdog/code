@@ -118,7 +118,7 @@ const auth = useAuthStore();
 const realtime = useRealtimeStore();
 const isSupplierRole = computed(() => auth.state.role === 'ROLE_SUPPLIER');
 const canManageRawMaterials = computed(() => auth.hasPermission('procurement:raw-material-manage'));
-const canDeleteRawMaterials = computed(() => ['ROLE_ADMIN', 'ROLE_SUPPLIER', 'ROLE_WAREHOUSE_MANAGER'].includes(auth.state.role));
+const canDeleteRawMaterials = computed(() => ['ROLE_SUPPLIER', 'ROLE_WAREHOUSE_MANAGER'].includes(auth.state.role));
 const rawMaterialEmptyText = computed(() => (isSupplierRole.value ? '当前没有原材料。' : '当前没有原材料记录。'));
 const showRawMaterialError = computed(() => Boolean(rawMaterialError.value) && !isSupplierRole.value);
 const currentEditingMaterial = computed(() => rawMaterials.value.find((item) => item.id === editingMaterialId.value) || null);

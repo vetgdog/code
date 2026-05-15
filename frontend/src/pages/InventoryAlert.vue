@@ -65,7 +65,8 @@
               <td class="py-3 text-xs text-on-surface-variant">{{ item.warehouseSummary || '-' }}</td>
               <td class="py-3"><span class="text-xs px-2 py-1 rounded-full" :class="severityClass(item.severity)">{{ item.severity }}</span></td>
               <td class="py-3">
-                <button class="text-xs text-primary font-semibold" @click="createProductionPlan(item)">生成生产计划</button>
+                <button v-if="canActOnInventoryAlerts" class="text-xs text-primary font-semibold" @click="createProductionPlan(item)">生成生产计划</button>
+                <span v-else class="text-xs text-on-surface-variant">只读查看</span>
               </td>
             </tr>
           </tbody>
@@ -109,7 +110,8 @@
               <td class="py-3 text-xs text-on-surface-variant">{{ item.warehouseSummary || '-' }}</td>
               <td class="py-3"><span class="text-xs px-2 py-1 rounded-full" :class="severityClass(item.severity)">{{ item.severity }}</span></td>
               <td class="py-3">
-                <button class="text-xs text-primary font-semibold" @click="createPurchaseRequest(item)">通知采购管理员</button>
+                <button v-if="canActOnInventoryAlerts" class="text-xs text-primary font-semibold" @click="createPurchaseRequest(item)">通知采购管理员</button>
+                <span v-else class="text-xs text-on-surface-variant">只读查看</span>
               </td>
             </tr>
           </tbody>
@@ -123,8 +125,11 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { inventoryApi } from '../api/services.js';
 import { useRealtimeStore } from '../store/realtime.js';
+import { useAuthStore } from '../store/auth.js';
 
+const auth = useAuthStore();
 const realtime = useRealtimeStore();
+const canActOnInventoryAlerts = computed(() => auth.hasPermission('inventory:alerts:act'));
 const finishedGoods = ref([]);
 const rawMaterials = ref([]);
 const generatedAt = ref('');
@@ -147,6 +152,10 @@ const loadAlerts = async () => {
 };
 
 const createProductionPlan = async (item) => {
+  if (!canActOnInventoryAlerts.value) {
+    error.value = '当前角色仅支持查看库存预警，不能生成补产计划。';
+    return;
+  }
   message.value = '';
   error.value = '';
   const input = window.prompt(`请输入 ${item.name} 的生产计划数量：`, String(item.recommendedActionQuantity || 0));
@@ -168,6 +177,10 @@ const createProductionPlan = async (item) => {
 };
 
 const createPurchaseRequest = async (item) => {
+  if (!canActOnInventoryAlerts.value) {
+    error.value = '当前角色仅支持查看库存预警，不能发起补采申请。';
+    return;
+  }
   message.value = '';
   error.value = '';
   const input = window.prompt(`请输入 ${item.name} 的采购申请数量：`, String(item.recommendedActionQuantity || 0));

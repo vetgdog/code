@@ -168,7 +168,7 @@ public class ProcurementController {
     }
 
     @PostMapping("/weekly-plans/generate")
-    @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('PROCUREMENT_MANAGER')")
     public ProcurementWeeklyPlan generateWeeklyPlan(@RequestParam(required = false) String referenceDate,
                                                     Authentication authentication) {
         return weeklyPlanningService.generateProcurementPlan(parseReferenceDate(referenceDate), authentication == null ? "" : authentication.getName());
@@ -284,13 +284,13 @@ public class ProcurementController {
     }
 
     @PostMapping("/orders")
-    @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('PROCUREMENT_MANAGER')")
     public PurchaseOrder createOrder(@RequestBody PurchaseOrder po, Authentication authentication) {
         return procurementWorkflowService.createPurchaseOrder(po, authentication == null ? "" : authentication.getName());
     }
 
     @PostMapping("/orders/{purchaseOrderId}/supplier-decision")
-    @PreAuthorize("hasAnyRole('SUPPLIER','ADMIN')")
+    @PreAuthorize("hasRole('SUPPLIER')")
     public PurchaseOrder supplierDecision(@PathVariable Long purchaseOrderId,
                                           @RequestParam String decision,
                                           @RequestBody(required = false) NoteRequest request,
@@ -304,7 +304,7 @@ public class ProcurementController {
     }
 
     @PostMapping("/orders/{purchaseOrderId}/supplier-ship")
-    @PreAuthorize("hasAnyRole('SUPPLIER','ADMIN')")
+    @PreAuthorize("hasRole('SUPPLIER')")
     public PurchaseOrder supplierShip(@PathVariable Long purchaseOrderId,
                                       @RequestBody(required = false) NoteRequest request,
                                       Authentication authentication) {
@@ -316,7 +316,7 @@ public class ProcurementController {
     }
 
     @PostMapping("/orders/{purchaseOrderId}/notify-warehouse")
-    @PreAuthorize("hasAnyRole('PROCUREMENT_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('PROCUREMENT_MANAGER')")
     public PurchaseOrder notifyWarehouse(@PathVariable Long purchaseOrderId,
                                          @RequestBody(required = false) NoteRequest request,
                                          Authentication authentication) {
@@ -328,7 +328,7 @@ public class ProcurementController {
     }
 
     @PostMapping("/orders/{purchaseOrderId}/warehouse-receive")
-    @PreAuthorize("hasAnyRole('WAREHOUSE_MANAGER','ADMIN')")
+    @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public PurchaseOrder warehouseReceive(@PathVariable Long purchaseOrderId,
                                           @RequestBody(required = false) NoteRequest request,
                                           Authentication authentication) {
@@ -418,7 +418,7 @@ public class ProcurementController {
     }
 
     @DeleteMapping("/raw-materials/{id}")
-    @PreAuthorize("hasAnyRole('SUPPLIER','WAREHOUSE_MANAGER','ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPPLIER','WAREHOUSE_MANAGER')")
     // 删除原材料。
     // 删除前会检查是否已被采购申请、采购订单、库存、MRP、领料申请、批次等业务数据引用。
     // 这是典型的“业务删除保护”设计，比单纯依赖外键报错更友好，也更可解释。
@@ -468,7 +468,7 @@ public class ProcurementController {
     }
 
     @PostMapping(value = "/raw-materials/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('SUPPLIER','ADMIN')")
+    @PreAuthorize("hasRole('SUPPLIER')")
     // Excel 批量导入原材料。
     // 采用“逐行解析 + 累积错误”的方式，而不是一行失败就整体中断，
     // 更符合企业批量主数据导入场景下的可运维性要求。

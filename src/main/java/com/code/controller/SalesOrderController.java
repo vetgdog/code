@@ -90,7 +90,8 @@ public class SalesOrderController {
      * <p>这里采用“后端统一计算金额”而不是完全信任前端传值，
      * 是企业系统里很重要的设计原则：金额、库存、状态这类关键字段应由后端掌握最终解释权。</p>
      */
-    public SalesOrder create(@RequestBody SalesOrder order) {
+    public SalesOrder create(@RequestBody SalesOrder order, Authentication authentication) {
+        ensureRole(authentication, "ROLE_SALES_MANAGER");
         // 保存前先统一计算明细行金额和订单总额，避免前端手工传值不准确。
         if (order.getItems() != null) {
             double total = 0.0;
@@ -122,7 +123,7 @@ public class SalesOrderController {
      * 如果订单存在多条明细，企业级实现通常应为每个成品分别建计划。</p>
      */
     public ProductionPlan createPlanFromOrder(@PathVariable Long orderId, Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_PRODUCTION_MANAGER");
+        ensureRole(authentication, "ROLE_PRODUCTION_MANAGER");
         SalesOrder order = salesOrderRepository.findById(orderId).orElseThrow(() -> new RuntimeException("SalesOrder not found: " + orderId));
         ProductionPlan p = new ProductionPlan();
         p.setPlanNo("PLAN-" + order.getOrderNo());
@@ -152,7 +153,7 @@ public class SalesOrderController {
     public ResponseEntity<?> routeToWarehouse(@PathVariable Long orderId,
                                               @RequestBody(required = false) WorkflowActionRequest request,
                                               Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
+        ensureRole(authentication, "ROLE_SALES_MANAGER");
         SalesOrder order = orderWorkflowService.routeToWarehouseCheck(orderId, authentication == null ? "" : authentication.getName());
         return ResponseEntity.ok(order);
     }
@@ -168,7 +169,7 @@ public class SalesOrderController {
     public ResponseEntity<?> warehouseReview(@PathVariable Long orderId,
                                              @RequestBody(required = false) WorkflowActionRequest request,
                                              Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        ensureRole(authentication, "ROLE_WAREHOUSE_MANAGER");
         String note = request == null ? "" : request.getNote();
         OrderWorkflowService.WarehouseReviewResult result =
                 orderWorkflowService.warehouseReview(orderId, authentication == null ? "" : authentication.getName(), note);
@@ -185,7 +186,7 @@ public class SalesOrderController {
     public ResponseEntity<?> warehouseShip(@PathVariable Long orderId,
                                            @RequestBody(required = false) WorkflowActionRequest request,
                                            Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        ensureRole(authentication, "ROLE_WAREHOUSE_MANAGER");
         SalesOrder order = orderWorkflowService.markOrderShipped(orderId, authentication == null ? "" : authentication.getName(), request == null ? "" : request.getNote());
         return ResponseEntity.ok(order);
     }
@@ -200,7 +201,7 @@ public class SalesOrderController {
     public ResponseEntity<?> productionComplete(@PathVariable Long orderId,
                                                 @RequestBody(required = false) WorkflowActionRequest request,
                                                 Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_PRODUCTION_MANAGER");
+        ensureRole(authentication, "ROLE_PRODUCTION_MANAGER");
         SalesOrder order = orderWorkflowService.markProductionCompleted(orderId, authentication == null ? "" : authentication.getName(), request == null ? "" : request.getNote());
         return ResponseEntity.ok(order);
     }
@@ -212,7 +213,7 @@ public class SalesOrderController {
      * <p>用于仓库查看哪些订单的生产已经完成且质检通过，正在等待成品入库确认。</p>
      */
     public List<SalesOrder> listPendingProductionStockIn(Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        ensureRole(authentication, "ROLE_WAREHOUSE_MANAGER");
         return orderWorkflowService.listOrdersPendingProductionStockIn();
     }
 
@@ -226,7 +227,7 @@ public class SalesOrderController {
     public ResponseEntity<?> warehouseStockIn(@PathVariable Long orderId,
                                               @RequestBody(required = false) WorkflowActionRequest request,
                                               Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_WAREHOUSE_MANAGER");
+        ensureRole(authentication, "ROLE_WAREHOUSE_MANAGER");
         SalesOrder order = orderWorkflowService.confirmProductionStockIn(orderId, authentication == null ? "" : authentication.getName(), request == null ? "" : request.getNote());
         return ResponseEntity.ok(order);
     }
@@ -243,7 +244,7 @@ public class SalesOrderController {
                                            @RequestParam String decision,
                                            @RequestBody(required = false) WorkflowActionRequest request,
                                            Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
+        ensureRole(authentication, "ROLE_SALES_MANAGER");
         String normalized = decision == null ? "" : decision.trim().toUpperCase();
         if ("ACCEPT".equals(normalized)) {
             SalesOrder order = orderWorkflowService.routeToWarehouseCheck(orderId, authentication == null ? "" : authentication.getName());
@@ -271,7 +272,7 @@ public class SalesOrderController {
     public ResponseEntity<?> updateBySales(@PathVariable Long orderId,
                                            @RequestParam String status,
                                            Authentication authentication) {
-        ensureRole(authentication, "ROLE_ADMIN", "ROLE_SALES_MANAGER");
+        ensureRole(authentication, "ROLE_SALES_MANAGER");
         String nextStatus = status == null ? "" : status.trim();
         if (!"已发货".equals(nextStatus) && !"已完成".equals(nextStatus)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status 仅支持 已发货 或 已完成");

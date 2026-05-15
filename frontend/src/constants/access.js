@@ -16,8 +16,34 @@ export const INTERNAL_POSITIONS = [
 const ROLE_CONFIG = {
   ROLE_ADMIN: {
     defaultRouteName: 'AccountAdmin',
-    routeNames: ['AccountAdmin', 'PasswordSecurity'],
+    routeNames: [
+      'Dashboard',
+      'AccountAdmin',
+      'Orders',
+      'Products',
+      'SalesRecords',
+      'Production',
+      'ProductionPlan',
+      'Inventory',
+      'InventoryAlert',
+      'Procurement',
+      'RawMaterials',
+      'ProcurementPlan',
+      'Quality',
+      'PasswordSecurity'
+    ],
     permissions: [
+      'dashboard:view',
+      'orders:view',
+      'products:view',
+      'sales-records:view',
+      'production:view',
+      'production:plan:view',
+      'inventory:view',
+      'inventory:alerts',
+      'procurement:view',
+      'procurement:plan:view',
+      'quality:view',
       'admin:user-manage'
     ]
   },
@@ -34,27 +60,27 @@ const ROLE_CONFIG = {
   ROLE_SALES_MANAGER: {
     defaultRouteName: 'Orders',
     routeNames: ['Dashboard', 'Orders', 'Products', 'SalesRecords', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:review']
+    permissions: ['dashboard:view', 'orders:view', 'orders:create', 'orders:review', 'products:view', 'products:manage', 'sales-records:view']
   },
   ROLE_PROCUREMENT_MANAGER: {
     defaultRouteName: 'Procurement',
     routeNames: ['Dashboard', 'Procurement', 'RawMaterials', 'ProcurementPlan', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'procurement:notify-warehouse', 'procurement:plan:view', 'procurement:raw-material-manage']
+    permissions: ['dashboard:view', 'procurement:view', 'procurement:create', 'procurement:notify-warehouse', 'procurement:plan:view', 'procurement:plan:generate', 'procurement:raw-material-manage']
   },
   ROLE_PRODUCTION_MANAGER: {
     defaultRouteName: 'Production',
     routeNames: ['Dashboard', 'Production', 'ProductionPlan', 'Orders', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'production:view', 'production:create', 'production:update', 'production:plan:view', 'orders:view']
+    permissions: ['dashboard:view', 'production:view', 'production:create', 'production:update', 'production:plan:view', 'production:plan:generate', 'orders:view']
   },
   ROLE_WAREHOUSE_MANAGER: {
     defaultRouteName: 'Inventory',
     routeNames: ['Dashboard', 'Inventory', 'InventoryAlert', 'Orders', 'RawMaterials', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'inventory:view', 'inventory:alerts', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check', 'procurement:raw-material-manage']
+    permissions: ['dashboard:view', 'inventory:view', 'inventory:alerts', 'inventory:alerts:act', 'inventory:edit', 'inventory:receive', 'orders:view', 'orders:warehouse-check', 'procurement:raw-material-manage']
   },
   ROLE_QUALITY_INSPECTOR: {
     defaultRouteName: 'Quality',
     routeNames: ['Dashboard', 'Quality', 'PasswordSecurity'],
-    permissions: ['dashboard:view', 'quality:view']
+    permissions: ['dashboard:view', 'quality:view', 'quality:inspect']
   }
 };
 
