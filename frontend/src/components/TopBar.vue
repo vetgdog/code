@@ -12,11 +12,11 @@
         <span class="text-xs font-semibold text-slate-600">实时推送：{{ realtimeConnected ? '已连接' : '重连中' }}</span>
       </div>
       <button class="relative p-2.5 text-slate-500 hover:bg-slate-100 rounded-full transition-colors" aria-label="Notifications" @click="toggleNotifications">
-        <span class="material-symbols-outlined">notifications</span>
+        <AppIcon name="notifications" class="h-6 w-6" />
         <span v-if="realtime.state.unreadCount" class="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-primary text-white text-[10px] leading-4 text-center">{{ badgeCount }}</span>
       </button>
       <button class="p-2.5 text-slate-500 hover:bg-slate-100 rounded-full transition-colors" aria-label="Security" @click="$emit('open-security')">
-        <span class="material-symbols-outlined">shield_lock</span>
+        <AppIcon name="shield_lock" class="h-6 w-6" />
       </button>
       <button
         class="neo-button-primary"
@@ -48,6 +48,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue';
+import AppIcon from './AppIcon.vue';
 import { useRealtimeStore } from '../store/realtime.js';
 
 defineProps({
