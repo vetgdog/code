@@ -236,7 +236,7 @@ public class QualityService {
                 .findFirst()
                 .orElse(null);
         if (order == null) {
-            if (STATUS_PASSED.equals(normalizedResult) && isInventoryAlertPlanBatch(batch)) {
+            if (STATUS_PASSED.equals(normalizedResult) && isStandaloneProductionPlanBatch(batch)) {
                 notifyWarehouseForQualifiedBatch(batch, remarks);
             }
             return;
@@ -336,10 +336,11 @@ public class QualityService {
         return normalized.isEmpty() ? "/topic/production" : "/topic/production/manager/" + normalized;
     }
 
-    private boolean isInventoryAlertPlanBatch(Batch batch) {
+    private boolean isStandaloneProductionPlanBatch(Batch batch) {
         return batch != null
                 && batch.getSourceOrderNo() != null
-                && batch.getSourceOrderNo().startsWith("PLAN-ALERT-");
+                && (batch.getSourceOrderNo().startsWith("PLAN-ALERT-")
+                || batch.getSourceOrderNo().startsWith("PLAN-MANUAL-"));
     }
 
     private String normalizeResult(String result) {

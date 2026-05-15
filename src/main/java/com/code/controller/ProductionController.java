@@ -1,12 +1,16 @@
 package com.code.controller;
 
 import com.code.entity.Batch;
+import com.code.entity.Product;
 import com.code.entity.ProductionMaterialRequest;
 import com.code.entity.ProductionPlan;
 import com.code.entity.ProductionTask;
 import com.code.entity.ProductionWeeklyPlan;
+import com.code.entity.User;
+import com.code.repository.ProductRepository;
 import com.code.repository.ProductionPlanRepository;
 import com.code.repository.ProductionTaskRepository;
+import com.code.repository.UserRepository;
 import com.code.service.OrderWorkflowService;
 import com.code.service.ProductionMaterialRequestService;
 import com.code.service.QualityService;
@@ -46,6 +50,12 @@ public class ProductionController {
 
     @Autowired
     private ProductionPlanRepository productionPlanRepository;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    @Autowired
+    private UserRepository userRepository;
 
     @Autowired
     private NotificationService notificationService;
@@ -122,10 +132,53 @@ public class ProductionController {
                 .collect(Collectors.toList());
     }
 
+    @PostMapping("/plans/manual")
+    @PreAuthorize("hasRole('PRODUCTION_MANAGER')")
+    public ProductionPlan createManualPlan(@RequestBody ManualProductionPlanCommand request,
+                                           Authentication authentication) {
+        if (request == null || request.getProductId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择要生产的成品");
+        }
+        double quantity = safeNumber(request.getPlannedQuantity());
+        if (quantity <= 0) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "生产数量必须大于0");
+        }
+
+        Product product = productRepository.findById(request.getProductId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "产品不存在: " + request.getProductId()));
+        if (!"FINISHED_GOOD".equalsIgnoreCase(product.getProductType())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "仅支持为成品创建生产单: " + product.getName());
+        }
+
+        User operator = requireCurrentUser(authentication == null ? "" : authentication.getName());
+        ProductionPlan plan = new ProductionPlan();
+        plan.setPlanNo("PLAN-MANUAL-" + product.getId() + "-" + System.currentTimeMillis());
+        plan.setProduct(product);
+        plan.setPlannedQuantity(quantity);
+        plan.setStatus("PLANNED");
+        plan.setStartDate(LocalDateTime.now());
+        plan.setEndDate(LocalDateTime.now().plusDays(7));
+        plan.setCreatedBy(operator.getId());
+        plan.setCreatedByName(resolveDisplayName(operator));
+        ProductionPlan saved = productionPlanRepository.save(plan);
+
+        notificationService.broadcast(
+                "/topic/production",
+                new NotificationMessage(
+                        "MANUAL_PRODUCTION_PLAN_CREATED",
+                        "ProductionPlan",
+                        saved.getId(),
+                        saved,
+                        LocalDateTime.now()
+                )
+        );
+        return saved;
+    }
+
     @GetMapping("/plans/pending-stock-in")
     @PreAuthorize("hasRole('WAREHOUSE_MANAGER')")
     public List<ActiveProductionPlanView> listPendingInventoryAlertStockInPlans() {
-        return orderWorkflowService.listInventoryAlertPlansPendingStockIn().stream()
+        return orderWorkflowService.listStandalonePlansPendingStockIn().stream()
                 .map(this::toActivePlanView)
                 .collect(Collectors.toList());
     }
@@ -135,7 +188,7 @@ public class ProductionController {
     public ProductionPlan completeInventoryAlertPlan(@PathVariable Long planId,
                                                      @RequestBody(required = false) PlanActionCommand request,
                                                      Authentication authentication) {
-        return orderWorkflowService.completeInventoryAlertPlan(
+        return orderWorkflowService.completeStandaloneProductionPlan(
                 planId,
                 authentication == null ? "" : authentication.getName(),
                 request == null ? "" : request.getNote()
@@ -147,7 +200,7 @@ public class ProductionController {
     public ProductionPlan confirmInventoryAlertPlanStockIn(@PathVariable Long planId,
                                                            @RequestBody(required = false) WarehouseReviewCommand request,
                                                            Authentication authentication) {
-        return orderWorkflowService.confirmInventoryAlertPlanStockIn(
+        return orderWorkflowService.confirmStandalonePlanStockIn(
                 planId,
                 authentication == null ? "" : authentication.getName(),
                 request == null ? "" : request.getNote()
@@ -365,11 +418,12 @@ public class ProductionController {
 
     private ActiveProductionPlanView toActivePlanView(ProductionPlan plan) {
         boolean inventoryAlertPlan = isInventoryAlertPlan(plan);
+        boolean manualPlan = isManualPlan(plan);
         return new ActiveProductionPlanView(
                 plan.getId(),
                 plan.getPlanNo(),
-                inventoryAlertPlan ? "库存预警补产" : "订单缺货补产",
-                inventoryAlertPlan ? "" : resolveOrderNo(plan.getPlanNo()),
+                inventoryAlertPlan ? "库存预警补产" : (manualPlan ? "手动创建生产单" : "订单缺货补产"),
+                inventoryAlertPlan || manualPlan ? "" : resolveOrderNo(plan.getPlanNo()),
                 plan.getProduct() == null ? null : plan.getProduct().getSku(),
                 plan.getProduct() == null ? null : plan.getProduct().getName(),
                 plan.getPlannedQuantity(),
@@ -420,6 +474,9 @@ public class ProductionController {
         if (planNo.startsWith("PLAN-ALERT-")) {
             return "";
         }
+        if (planNo.startsWith("PLAN-MANUAL-")) {
+            return "";
+        }
         String remaining = planNo.substring("PLAN-".length());
         int lastSeparator = remaining.lastIndexOf('-');
         if (lastSeparator <= 0) {
@@ -435,6 +492,34 @@ public class ProductionController {
 
     private boolean isInventoryAlertPlan(ProductionPlan plan) {
         return plan != null && plan.getPlanNo() != null && plan.getPlanNo().startsWith("PLAN-ALERT-");
+    }
+
+    private boolean isManualPlan(ProductionPlan plan) {
+        return plan != null && plan.getPlanNo() != null && plan.getPlanNo().startsWith("PLAN-MANUAL-");
+    }
+
+    private double safeNumber(Double value) {
+        return value == null ? 0.0 : value;
+    }
+
+    private User requireCurrentUser(String email) {
+        return userRepository.findByEmailIgnoreCase(email == null ? "" : email.trim())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "当前账号无权执行该操作"));
+    }
+
+    private String resolveDisplayName(User user) {
+        if (user == null) {
+            return "";
+        }
+        String name = user.getName();
+        if (name != null && !name.isBlank()) {
+            return name.trim();
+        }
+        String fullName = user.getFullName();
+        if (fullName != null && !fullName.isBlank()) {
+            return fullName.trim();
+        }
+        return user.getEmail() == null ? "" : user.getEmail().trim();
     }
 
     private boolean matchesKeyword(ProductionRecordView record, String keyword) {
@@ -770,6 +855,27 @@ public class ProductionController {
 
         public void setNote(String note) {
             this.note = note;
+        }
+    }
+
+    public static class ManualProductionPlanCommand {
+        private Long productId;
+        private Double plannedQuantity;
+
+        public Long getProductId() {
+            return productId;
+        }
+
+        public void setProductId(Long productId) {
+            this.productId = productId;
+        }
+
+        public Double getPlannedQuantity() {
+            return plannedQuantity;
+        }
+
+        public void setPlannedQuantity(Double plannedQuantity) {
+            this.plannedQuantity = plannedQuantity;
         }
     }
 

@@ -285,6 +285,46 @@ class OrderWorkflowServiceTest {
     }
 
     @Test
+    void completeStandaloneProductionPlanShouldSupportManualPlan() {
+        Product product = new Product();
+        product.setId(720L);
+        product.setName("手动生产成品");
+
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(72L);
+        plan.setPlanNo("PLAN-MANUAL-720-202605150001");
+        plan.setProduct(product);
+        plan.setPlannedQuantity(5.0);
+        plan.setStatus("PLANNED");
+
+        User productionManager = new User();
+        productionManager.setId(18L);
+        productionManager.setEmail("prod@test.com");
+        productionManager.setFullName("生产管理员乙");
+
+        when(productionPlanRepository.findById(72L)).thenReturn(Optional.of(plan));
+        when(userRepository.findByEmailIgnoreCase("prod@test.com")).thenReturn(Optional.of(productionManager));
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(batchRepository.findBySourceOrderNoAndProductId(plan.getPlanNo(), 720L)).thenReturn(Optional.empty());
+        when(batchRepository.save(any(Batch.class))).thenAnswer(invocation -> {
+            Batch saved = invocation.getArgument(0);
+            saved.setId(721L);
+            return saved;
+        });
+        when(productionMaterialRequestService.requireReadyRequestForPlan(72L)).thenReturn(new com.code.entity.ProductionMaterialRequest());
+
+        ProductionPlan result = orderWorkflowService.completeStandaloneProductionPlan(72L, "prod@test.com", "manual done");
+
+        assertEquals("DONE", result.getStatus());
+        assertEquals("prod@test.com", result.getCompletedByEmail());
+        verify(batchRepository).save(argThat(batch -> plan.getPlanNo().equals(batch.getSourceOrderNo())
+                && QualityService.STATUS_PENDING.equals(batch.getQualityStatus())));
+        verify(notificationService).broadcast(eq("/topic/quality"), any());
+        verify(notificationService).broadcast(eq("/topic/production"), any());
+        verify(productionMaterialRequestService).markProductionCompletedForPlan(72L);
+    }
+
+    @Test
     void confirmInventoryAlertPlanStockInStoresFinishedGoodsInventory() {
         Product product = new Product();
         product.setId(710L);
@@ -335,6 +375,59 @@ class OrderWorkflowServiceTest {
         verify(stockTransactionRepository).save(any());
         verify(notificationService).broadcast(eq("/topic/production"), any());
         verify(productionMaterialRequestService).markWarehousedForPlan(71L);
+    }
+
+    @Test
+    void confirmStandalonePlanStockInShouldSupportManualPlan() {
+        Product product = new Product();
+        product.setId(730L);
+        product.setName("手动生产成品");
+
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(73L);
+        plan.setPlanNo("PLAN-MANUAL-730-202605150002");
+        plan.setProduct(product);
+        plan.setPlannedQuantity(7.0);
+        plan.setStatus("DONE");
+
+        Batch batch = new Batch();
+        batch.setId(731L);
+        batch.setBatchNo("BT-730");
+        batch.setSourceOrderNo(plan.getPlanNo());
+        batch.setProduct(product);
+        batch.setQualityStatus(QualityService.STATUS_PASSED);
+
+        Warehouse finishedWarehouse = new Warehouse();
+        finishedWarehouse.setId(8L);
+        finishedWarehouse.setCode(WarehouseDefaults.FINISHED_GOODS_WAREHOUSE_CODE);
+        finishedWarehouse.setName("成品仓");
+
+        java.util.List<InventoryItem> inventoryState = new java.util.ArrayList<>();
+
+        when(productionPlanRepository.findById(73L)).thenReturn(Optional.of(plan));
+        when(batchRepository.findBySourceOrderNoAndProductId(plan.getPlanNo(), 730L)).thenReturn(Optional.of(batch));
+        when(inventoryItemRepository.findByProductId(730L)).thenAnswer(invocation -> inventoryState);
+        when(warehouseRepository.findByCodeIgnoreCase(WarehouseDefaults.FINISHED_GOODS_WAREHOUSE_CODE)).thenReturn(Optional.of(finishedWarehouse));
+        when(inventoryItemRepository.save(any(InventoryItem.class))).thenAnswer(invocation -> {
+            InventoryItem saved = invocation.getArgument(0);
+            if (!inventoryState.contains(saved)) {
+                inventoryState.add(saved);
+            }
+            return saved;
+        });
+        when(productionPlanRepository.save(any(ProductionPlan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(stockTransactionRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ProductionPlan result = orderWorkflowService.confirmStandalonePlanStockIn(73L, "warehouse@test.com", "stock in");
+
+        assertEquals("WAREHOUSED", result.getStatus());
+        verify(inventoryItemRepository).save(argThat(item -> item.getWarehouse() == finishedWarehouse
+                && item.getProduct() == product
+                && item.getQuantity() == 7.0
+                && "BT-730".equals(item.getLot())));
+        verify(stockTransactionRepository).save(any());
+        verify(notificationService).broadcast(eq("/topic/production"), any());
+        verify(productionMaterialRequestService).markWarehousedForPlan(73L);
     }
 
     @Test

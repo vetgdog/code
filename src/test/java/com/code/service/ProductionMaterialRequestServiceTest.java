@@ -236,6 +236,47 @@ class ProductionMaterialRequestServiceTest {
         verify(notificationService).broadcast(eq("/topic/orders/warehouse"), any());
     }
 
+    @Test
+    void createRequestShouldSupportManualProductionPlanSource() {
+        Product finished = new Product();
+        finished.setId(302L);
+        finished.setSku("FG-MANUAL-302");
+        finished.setName("手动生产成品");
+        finished.setProductType("FINISHED_GOOD");
+
+        ProductionPlan plan = new ProductionPlan();
+        plan.setId(32L);
+        plan.setPlanNo("PLAN-MANUAL-302-202605150001");
+        plan.setProduct(finished);
+        plan.setStatus("PLANNED");
+
+        User productionManager = user(34L, "prod@test.com", "生产管理员丁", "ROLE_PRODUCTION_MANAGER");
+        Product raw = rawMaterial(207L, "RM-207", "铝型材");
+
+        when(productionPlanRepository.findById(32L)).thenReturn(Optional.of(plan));
+        when(requestRepository.findByProductionPlanIdOrderByCreatedAtDesc(32L)).thenReturn(List.of());
+        when(userRepository.findByEmailIgnoreCase("prod@test.com")).thenReturn(Optional.of(productionManager));
+        when(productRepository.findById(207L)).thenReturn(Optional.of(raw));
+        when(requestRepository.save(any(ProductionMaterialRequest.class))).thenAnswer(invocation -> {
+            ProductionMaterialRequest saved = invocation.getArgument(0);
+            saved.setId(99L);
+            return saved;
+        });
+
+        ProductionMaterialRequest result = productionMaterialRequestService.createRequest(
+                null,
+                32L,
+                List.of(new ProductionMaterialRequestService.MaterialItemCommand(207L, 4.0)),
+                "手动生产先领料",
+                "prod@test.com"
+        );
+
+        assertEquals(99L, result.getId());
+        assertEquals("PLAN-MANUAL-302-202605150001", result.getProductionPlan().getPlanNo());
+        assertEquals("手动生产成品", result.getFinishedProduct().getName());
+        assertEquals(ProductionMaterialRequestService.STATUS_PENDING_WAREHOUSE_REVIEW, result.getStatus());
+    }
+
     private SalesOrder buildProductionOrder(Long id, Long productId, String orderNo) {
         Product finished = new Product();
         finished.setId(productId);

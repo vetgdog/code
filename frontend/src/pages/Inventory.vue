@@ -79,17 +79,18 @@
     <section v-if="canReceiveInventory" class="bg-white rounded-lg border border-outline-variant/10">
       <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
         <div>
-          <h3 class="text-sm font-bold tracking-tight">待确认库存预警补产入库</h3>
-          <p class="mt-1 text-xs text-on-surface-variant">库存预警生成的补产计划在质检合格后，会进入这里等待仓库确认入库。</p>
+          <h3 class="text-sm font-bold tracking-tight">待确认独立生产计划入库</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">库存预警补产计划和生产管理员手动创建的生产单在质检合格后，会进入这里等待仓库确认入库。</p>
         </div>
         <button class="text-xs text-primary font-semibold" @click="loadPendingAlertProductionPlans">刷新</button>
       </div>
       <div class="p-5">
-        <div v-if="pendingAlertProductionPlans.length === 0" class="text-sm text-on-surface-variant">暂无待确认的库存预警补产入库计划。</div>
+        <div v-if="pendingAlertProductionPlans.length === 0" class="text-sm text-on-surface-variant">暂无待确认的独立生产计划。</div>
         <table v-else class="w-full text-sm">
           <thead class="text-xs text-on-surface-variant">
             <tr class="text-left">
               <th class="pb-2">计划单号</th>
+              <th class="pb-2">来源</th>
               <th class="pb-2">产品</th>
               <th class="pb-2">SKU</th>
               <th class="pb-2">数量</th>
@@ -100,12 +101,13 @@
           <tbody>
             <tr v-for="plan in pendingAlertProductionPlans" :key="plan.id" class="border-t border-outline-variant/20">
               <td class="py-3 font-semibold">{{ plan.planNo }}</td>
+              <td class="py-3">{{ plan.sourceType || '-' }}</td>
               <td class="py-3">{{ plan.productName || '-' }}</td>
               <td class="py-3">{{ plan.productSku || '-' }}</td>
               <td class="py-3">{{ formatQuantity(plan.plannedQuantity) }}</td>
               <td class="py-3">{{ plan.status }}</td>
               <td class="py-3">
-                <button class="text-xs text-primary font-semibold" @click="confirmAlertProductionStockIn(plan)">确认补产入库</button>
+                <button class="text-xs text-primary font-semibold" @click="confirmAlertProductionStockIn(plan)">{{ plan.sourceType === '库存预警补产' ? '确认补产入库' : '确认生产入库' }}</button>
               </td>
             </tr>
           </tbody>
@@ -459,7 +461,7 @@ const loadPendingAlertProductionPlans = async () => {
     return;
   }
   try {
-    const response = await productionApi.listPendingAlertStockInPlans();
+    const response = await productionApi.listPendingStandaloneStockInPlans();
     pendingAlertProductionPlans.value = response.data || [];
   } catch (err) {
     pendingAlertProductionPlans.value = [];
@@ -508,11 +510,13 @@ const confirmAlertProductionStockIn = async (plan) => {
   message.value = '';
   error.value = '';
   try {
-    await productionApi.warehouseStockInAlertPlan(plan.id, {});
-    message.value = `补产计划 ${plan.planNo} 已确认入库。`;
+    await productionApi.warehouseStockInPlan(plan.id, {});
+    message.value = plan?.sourceType === '库存预警补产'
+      ? `补产计划 ${plan.planNo} 已确认入库。`
+      : `生产单 ${plan.planNo} 已确认入库。`;
     await Promise.all([loadPendingAlertProductionPlans(), loadItems(), loadTransactions()]);
   } catch (err) {
-    error.value = err?.response?.data?.message || err?.response?.data || '库存预警补产入库确认失败。';
+    error.value = err?.response?.data?.message || err?.response?.data || '生产计划入库确认失败。';
   }
 };
 

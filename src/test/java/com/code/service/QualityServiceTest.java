@@ -103,6 +103,23 @@ class QualityServiceTest {
     }
 
     @Test
+    void inspectManualPlanBatchAsPassedShouldNotifyWarehouseForStandaloneStockIn() {
+        Batch batch = buildBatch();
+        batch.setSourceOrderNo("PLAN-MANUAL-100-202605150001");
+
+        when(batchRepository.findById(1L)).thenReturn(Optional.of(batch));
+        when(userRepository.findByEmailIgnoreCase("quality@test.com")).thenReturn(Optional.empty());
+        when(salesOrderRepository.findAll()).thenReturn(List.of());
+        when(qualityRecordRepository.save(any(QualityRecord.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(batchRepository.save(any(Batch.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        Batch result = qualityService.inspectBatch(1L, "合格", "计划合格", "quality@test.com");
+
+        assertEquals(QualityService.STATUS_PASSED, result.getQualityStatus());
+        verify(notificationService).broadcast(eq("/topic/orders/warehouse"), any());
+    }
+
+    @Test
     void listProductionAlertsReturnsOnlyFailedBatchesForCurrentManager() {
         Batch failed = buildBatch();
         failed.setQualityStatus(QualityService.STATUS_FAILED);

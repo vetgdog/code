@@ -1,10 +1,34 @@
 <template>
   <div class="space-y-6">
+    <section v-if="canCreateProduction" class="bg-white rounded-lg border border-outline-variant/10 p-5">
+      <div class="flex items-center justify-between gap-4">
+        <div>
+          <h3 class="text-sm font-bold tracking-tight">手动创建生产单</h3>
+          <p class="mt-1 text-xs text-on-surface-variant">生产管理员可直接为成品创建一张手动生产单，随后按生产计划申请原材料、完成生产、送质检并等待仓库确认入库。</p>
+        </div>
+      </div>
+      <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" @submit.prevent="submitManualPlan">
+        <select v-model="manualPlanForm.productId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
+          <option value="">请选择成品</option>
+          <option v-for="product in finishedProductOptions" :key="product.id" :value="String(product.id)">
+            {{ product.name }}（{{ product.sku }}）
+          </option>
+        </select>
+        <input v-model.number="manualPlanForm.plannedQuantity" type="number" min="0.01" step="0.01" placeholder="生产数量" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required />
+        <div class="md:col-span-2 xl:col-span-4 flex flex-wrap gap-3">
+          <button class="rounded bg-primary text-white px-4 py-2 text-sm font-semibold">创建生产单</button>
+          <button type="button" class="rounded border border-outline-variant/40 px-4 py-2 text-sm" @click="resetManualPlanForm">清空</button>
+        </div>
+      </form>
+      <div v-if="manualPlanMessage" class="mt-3 text-xs text-emerald-600">{{ manualPlanMessage }}</div>
+      <div v-if="manualPlanError" class="mt-3 text-xs text-error">{{ manualPlanError }}</div>
+    </section>
+
     <section v-if="canUpdateProduction" class="bg-white rounded-lg border border-outline-variant/10">
       <div class="p-5 border-b border-surface-container-low flex items-center justify-between">
         <div>
           <h3 class="text-sm font-bold tracking-tight">待执行生产计划单</h3>
-          <p class="mt-1 text-xs text-on-surface-variant">展示尚未完工的生产计划，包含订单缺货补产与库存预警补产计划；其中库存预警补产也必须先申请原材料、待仓库备料后方可生产。</p>
+          <p class="mt-1 text-xs text-on-surface-variant">展示尚未完工的生产计划，包含订单缺货补产、库存预警补产以及生产管理员手动创建的生产单；其中独立生产计划必须先申请原材料、待仓库备料后方可生产。</p>
         </div>
         <button class="text-xs text-primary font-semibold" @click="loadActivePlans">刷新</button>
       </div>
@@ -36,25 +60,25 @@
               <td class="py-3">{{ plan.productSku || '-' }}</td>
               <td class="py-3">{{ formatNumber(plan.plannedQuantity) }}</td>
               <td class="py-3">{{ formatRecordStatus(plan.status) }}</td>
-              <td class="py-3">{{ isInventoryAlertPlan(plan) ? formatMaterialRequestStatus(latestRequestByPlan[plan.id]?.status) : '-' }}</td>
+              <td class="py-3">{{ isStandalonePlan(plan) ? formatMaterialRequestStatus(latestRequestByPlan[plan.id]?.status) : '-' }}</td>
               <td class="py-3">{{ formatOperator(plan.createdByName, plan.createdBy) }}</td>
               <td class="py-3">{{ formatDate(plan.createdAt) }}</td>
               <td class="py-3">
                 <button
-                  v-if="canUpdateProduction && isInventoryAlertPlan(plan) && !latestRequestByPlan[plan.id]"
+                  v-if="canUpdateProduction && isStandalonePlan(plan) && !latestRequestByPlan[plan.id]"
                   class="text-xs text-primary"
-                  @click="prefillAlertPlanMaterialRequest(plan)"
+                  @click="prefillStandalonePlanMaterialRequest(plan)"
                 >
                   先申请原料
                 </button>
                 <button
-                  v-else-if="canUpdateProduction && isInventoryAlertPlan(plan) && canCompleteAlertPlan(plan.id)"
+                  v-else-if="canUpdateProduction && isStandalonePlan(plan) && canCompleteStandalonePlan(plan.id)"
                   class="text-xs text-primary"
-                  @click="completeAlertPlan(plan)"
+                  @click="completeStandalonePlan(plan)"
                 >
-                  完成补产并送质检
+                  {{ isInventoryAlertPlan(plan) ? '完成补产并送质检' : '完成生产并送质检' }}
                 </button>
-                <span v-else-if="canUpdateProduction && isInventoryAlertPlan(plan)" class="text-xs text-on-surface-variant">
+                <span v-else-if="canUpdateProduction && isStandalonePlan(plan)" class="text-xs text-on-surface-variant">
                   {{ latestRequestByPlan[plan.id]?.status === '已备料待生产' ? '可开始生产' : '等待仓库备料' }}
                 </span>
                 <span v-else class="text-xs text-on-surface-variant">按订单流程处理</span>
@@ -109,7 +133,7 @@
       <div class="flex items-center justify-between gap-4">
         <div>
           <h3 class="text-sm font-bold tracking-tight">生产领料申请</h3>
-          <p class="mt-1 text-xs text-on-surface-variant">无论是正常生产订单，还是仓库触发的库存预警补产计划，生产管理员都需先提交所需原材料和数量，待仓库管理员审核并完成原料出库后，方可继续生产。</p>
+          <p class="mt-1 text-xs text-on-surface-variant">无论是正常生产订单，还是独立生产计划（手动创建 / 库存预警补产），生产管理员都需先提交所需原材料和数量，待仓库管理员审核并完成原料出库后，方可继续生产。</p>
           <p class="mt-2 text-xs text-slate-500">同一张领料申请支持添加多个原材料种类；若重复添加同一原材料，系统会自动合并数量，避免重复行。</p>
         </div>
         <button class="text-xs text-primary font-semibold" @click="loadMaterialRequests">刷新申请</button>
@@ -118,7 +142,7 @@
       <form class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4" @submit.prevent="submitMaterialRequest">
         <select v-model="materialRequestForm.sourceType" class="rounded border border-outline-variant/40 px-3 py-2 text-sm">
           <option value="order">生产订单</option>
-          <option value="plan">库存预警补产计划</option>
+          <option value="plan">生产计划（手动创建 / 补产）</option>
         </select>
         <select v-if="materialRequestForm.sourceType === 'order'" v-model="materialRequestForm.orderId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
           <option value="">请选择生产订单</option>
@@ -127,8 +151,8 @@
           </option>
         </select>
         <select v-else v-model="materialRequestForm.planId" class="rounded border border-outline-variant/40 px-3 py-2 text-sm" required>
-          <option value="">请选择补产计划</option>
-          <option v-for="plan in alertPlansForMaterialRequest" :key="plan.id" :value="String(plan.id)">
+          <option value="">请选择生产计划</option>
+          <option v-for="plan in standalonePlansForMaterialRequest" :key="plan.id" :value="String(plan.id)">
             {{ plan.planNo }} / {{ plan.productName || '-' }} / {{ formatNumber(plan.plannedQuantity) }}
           </option>
         </select>
@@ -328,6 +352,7 @@ import { useAuthStore } from '../store/auth.js';
 import ProductionWeeklyBarChart from '../components/ProductionWeeklyBarChart.vue';
 
 const auth = useAuthStore();
+const canCreateProduction = computed(() => auth.hasPermission('production:create'));
 const canUpdateProduction = computed(() => auth.hasPermission('production:update'));
 
 const productionOrders = ref([]);
@@ -347,6 +372,13 @@ const rawMaterialOptions = ref([]);
 const materialRequestMessage = ref('');
 const materialRequestError = ref('');
 const materialRequestItems = ref([]);
+const finishedProductOptions = ref([]);
+const manualPlanMessage = ref('');
+const manualPlanError = ref('');
+const manualPlanForm = reactive({
+  productId: '',
+  plannedQuantity: null
+});
 const materialRequestForm = reactive({
   sourceType: 'order',
   orderId: '',
@@ -394,10 +426,61 @@ const loadActivePlans = async () => {
   try {
     const response = await productionApi.listActivePlans();
     activePlans.value = response.data || [];
+    if (materialRequestForm.sourceType === 'plan') {
+      const firstOpenPlan = activePlans.value.find((plan) => isStandalonePlan(plan));
+      const currentPlanExists = activePlans.value.some((plan) => String(plan.id) === String(materialRequestForm.planId));
+      materialRequestForm.planId = currentPlanExists ? materialRequestForm.planId : (firstOpenPlan ? String(firstOpenPlan.id) : '');
+    }
   } catch (error) {
     activePlans.value = [];
     activePlanError.value = error?.response?.data?.message || error?.response?.data || '待执行生产计划加载失败。';
   }
+};
+
+const loadFinishedProductOptions = async () => {
+  try {
+    const response = await productApi.list({ productType: 'FINISHED_GOOD' });
+    finishedProductOptions.value = response.data || [];
+  } catch (error) {
+    finishedProductOptions.value = [];
+  }
+};
+
+const submitManualPlan = async () => {
+  manualPlanMessage.value = '';
+  manualPlanError.value = '';
+  if (!manualPlanForm.productId) {
+    manualPlanError.value = '请选择要生产的成品。';
+    return;
+  }
+  if (!manualPlanForm.plannedQuantity || Number(manualPlanForm.plannedQuantity) <= 0) {
+    manualPlanError.value = '请填写正确的生产数量。';
+    return;
+  }
+  try {
+    const response = await productionApi.createManualPlan({
+      productId: Number(manualPlanForm.productId),
+      plannedQuantity: Number(manualPlanForm.plannedQuantity)
+    });
+    const plan = response?.data;
+    manualPlanMessage.value = `生产单 ${plan?.planNo || ''} 已创建，请继续申请原材料。`;
+    resetManualPlanForm();
+    if (plan?.id) {
+      materialRequestForm.sourceType = 'plan';
+      materialRequestForm.planId = String(plan.id);
+      materialRequestForm.orderId = '';
+      materialRequestMessage.value = '';
+      materialRequestError.value = '';
+    }
+    await Promise.all([loadActivePlans(), loadRecords(), loadMaterialRequests()]);
+  } catch (error) {
+    manualPlanError.value = error?.response?.data?.message || error?.response?.data || '手动创建生产单失败。';
+  }
+};
+
+const resetManualPlanForm = () => {
+  manualPlanForm.productId = '';
+  manualPlanForm.plannedQuantity = null;
 };
 
 const loadOrders = async () => {
@@ -429,15 +512,17 @@ const completeProduction = async (orderId) => {
   }
 };
 
-const completeAlertPlan = async (plan) => {
+const completeStandalonePlan = async (plan) => {
   statusMessage.value = '';
   statusError.value = '';
   try {
-    await productionApi.completeAlertPlan(plan.id, {});
-    statusMessage.value = `补产计划 ${plan.planNo} 已完工，并已推送质检。`;
+    await productionApi.completePlan(plan.id, {});
+    statusMessage.value = isInventoryAlertPlan(plan)
+      ? `补产计划 ${plan.planNo} 已完工，并已推送质检。`
+      : `生产单 ${plan.planNo} 已完工，并已推送质检。`;
     await Promise.all([loadActivePlans(), loadRecords(), loadQualityAlerts(), loadMaterialRequests()]);
   } catch (error) {
-    statusError.value = error?.response?.data?.message || error?.response?.data || '库存预警补产计划完工失败。';
+    statusError.value = error?.response?.data?.message || error?.response?.data || '生产计划完工失败。';
   }
 };
 
@@ -541,7 +626,7 @@ const prefillMaterialRequest = (order) => {
   materialRequestError.value = '';
 };
 
-const prefillAlertPlanMaterialRequest = (plan) => {
+const prefillStandalonePlanMaterialRequest = (plan) => {
   if (!plan?.id) {
     return;
   }
@@ -605,6 +690,8 @@ const formatQuantity = (items) => (items || []).reduce((sum, item) => sum + Numb
 const formatNumber = (value) => Number(value || 0).toFixed(2);
 const formatDate = (value) => (value ? new Date(value).toLocaleString() : '-');
 const isInventoryAlertPlan = (plan) => (plan?.planNo || '').startsWith('PLAN-ALERT-');
+const isManualPlan = (plan) => (plan?.planNo || '').startsWith('PLAN-MANUAL-');
+const isStandalonePlan = (plan) => isInventoryAlertPlan(plan) || isManualPlan(plan);
 const formatMaterialRequestStatus = (value) => value || '未申请';
 const summarizeMaterialItems = (items) => (items || []).map((item) => `${item.materialProduct?.name || item.productName || '-'} x ${formatNumber(item.requiredQuantity)}`).join('；') || '-';
 const formatRecordStatus = (value) => {
@@ -642,14 +729,14 @@ const latestRequestByPlan = computed(() => materialRequests.value.reduce((accumu
   return accumulator;
 }, {}));
 
-const alertPlansForMaterialRequest = computed(() => activePlans.value.filter((plan) => isInventoryAlertPlan(plan)));
+const standalonePlansForMaterialRequest = computed(() => activePlans.value.filter((plan) => isStandalonePlan(plan)));
 
 const canCompleteOrder = (orderId) => latestRequestByOrder.value[orderId]?.status === '已备料待生产';
-const canCompleteAlertPlan = (planId) => latestRequestByPlan.value[planId]?.status === '已备料待生产';
+const canCompleteStandalonePlan = (planId) => latestRequestByPlan.value[planId]?.status === '已备料待生产';
 const resolveMaterialRequestSourceNo = (request) => request?.salesOrder?.orderNo || request?.productionPlan?.planNo || '-';
 
 onMounted(async () => {
-  await Promise.all([loadActivePlans(), loadOrders(), loadRecords(), loadLastWeekProductionOverview(), loadQualityAlerts(), loadMaterialRequests(), loadRawMaterialOptions()]);
+  await Promise.all([loadActivePlans(), loadOrders(), loadRecords(), loadLastWeekProductionOverview(), loadQualityAlerts(), loadMaterialRequests(), loadRawMaterialOptions(), loadFinishedProductOptions()]);
 });
 
 watch(

@@ -296,12 +296,23 @@ public class OrderWorkflowService {
     public ProductionPlan completeInventoryAlertPlan(Long planId, String operator, String note) {
         ProductionPlan plan = getProductionPlan(planId);
         requireInventoryAlertPlan(plan);
+        return completeStandalonePlan(plan, operator, note);
+    }
+
+    @Transactional
+    public ProductionPlan completeStandaloneProductionPlan(Long planId, String operator, String note) {
+        ProductionPlan plan = getProductionPlan(planId);
+        requireStandaloneProductionPlan(plan);
+        return completeStandalonePlan(plan, operator, note);
+    }
+
+    private ProductionPlan completeStandalonePlan(ProductionPlan plan, String operator, String note) {
         String currentStatus = safeStatus(plan.getStatus()).toUpperCase(Locale.ROOT);
         if ("DONE".equals(currentStatus) || "WAREHOUSED".equals(currentStatus) || "CANCELLED".equals(currentStatus)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许执行库存预警补产完工: " + plan.getStatus());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许执行生产计划完工: " + plan.getStatus());
         }
 
-        productionMaterialRequestService.requireReadyRequestForPlan(planId);
+        productionMaterialRequestService.requireReadyRequestForPlan(plan.getId());
 
         User productionManager = resolveUserByEmail(operator);
         plan.setStatus("DONE");
@@ -312,11 +323,11 @@ public class OrderWorkflowService {
         ProductionPlan saved = productionPlanRepository.save(plan);
 
         prepareCompletedPlanBatchesForQuality(null, List.of(saved));
-        productionMaterialRequestService.markProductionCompletedForPlan(planId);
+        productionMaterialRequestService.markProductionCompletedForPlan(plan.getId());
         notificationService.broadcast(
                 "/topic/production",
                 new NotificationMessage(
-                        "INVENTORY_ALERT_PRODUCTION_DONE",
+                        "STANDALONE_PRODUCTION_PLAN_DONE",
                         "ProductionPlan",
                         saved.getId(),
                         saved,
@@ -326,13 +337,19 @@ public class OrderWorkflowService {
         return saved;
     }
 
-    public List<ProductionPlan> listInventoryAlertPlansPendingStockIn() {
+    public List<ProductionPlan> listStandalonePlansPendingStockIn() {
         return productionPlanRepository.findAll().stream()
-                .filter(this::isInventoryAlertPlan)
+                .filter(this::isStandaloneProductionPlan)
                 .filter(plan -> "DONE".equalsIgnoreCase(safeStatus(plan.getStatus())))
-                .filter(this::hasPassedQualityBatchForAlertPlan)
+                .filter(this::hasPassedQualityBatchForStandalonePlan)
                 .sorted(Comparator.comparing(ProductionPlan::getEndDate, Comparator.nullsLast(Comparator.reverseOrder()))
                         .thenComparing(ProductionPlan::getCreatedAt, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+    }
+
+    public List<ProductionPlan> listInventoryAlertPlansPendingStockIn() {
+        return listStandalonePlansPendingStockIn().stream()
+                .filter(this::isInventoryAlertPlan)
                 .toList();
     }
 
@@ -340,8 +357,19 @@ public class OrderWorkflowService {
     public ProductionPlan confirmInventoryAlertPlanStockIn(Long planId, String operator, String note) {
         ProductionPlan plan = getProductionPlan(planId);
         requireInventoryAlertPlan(plan);
+        return confirmStandalonePlanStockIn(plan, operator, note);
+    }
+
+    @Transactional
+    public ProductionPlan confirmStandalonePlanStockIn(Long planId, String operator, String note) {
+        ProductionPlan plan = getProductionPlan(planId);
+        requireStandaloneProductionPlan(plan);
+        return confirmStandalonePlanStockIn(plan, operator, note);
+    }
+
+    private ProductionPlan confirmStandalonePlanStockIn(ProductionPlan plan, String operator, String note) {
         if (!"DONE".equalsIgnoreCase(safeStatus(plan.getStatus()))) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许确认库存预警补产入库: " + plan.getStatus());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许确认生产计划入库: " + plan.getStatus());
         }
 
         Product product = plan.getProduct();
@@ -372,18 +400,18 @@ public class OrderWorkflowService {
                     "PRODUCTION_PLAN",
                     plan.getId(),
                     operatorUser,
-                    noteOrDefault(blankToNull(note), "库存预警补产成品入库"),
+                    noteOrDefault(blankToNull(note), isInventoryAlertPlan(plan) ? "库存预警补产成品入库" : "手动生产计划成品入库"),
                     batch.getBatchNo()
             );
         }
 
         plan.setStatus("WAREHOUSED");
         ProductionPlan saved = productionPlanRepository.save(plan);
-        productionMaterialRequestService.markWarehousedForPlan(planId);
+        productionMaterialRequestService.markWarehousedForPlan(plan.getId());
         notificationService.broadcast(
                 "/topic/production",
                 new NotificationMessage(
-                        "INVENTORY_ALERT_PRODUCTION_WAREHOUSED",
+                        "STANDALONE_PRODUCTION_PLAN_WAREHOUSED",
                         "ProductionPlan",
                         saved.getId(),
                         saved,
@@ -516,7 +544,9 @@ public class OrderWorkflowService {
     private Batch createOrUpdateBatch(SalesOrder order, ProductionPlan plan, Product product, double quantity) {
         // 批次是“生产结果”的质量追溯载体。
         // 同一来源订单 + 产品通常只维护一个最新批次记录，便于后续质检和订单联动。
-        String sourceOrderNo = order == null ? resolveOrderNoFromPlanNo(plan.getPlanNo()) : safeOrderNo(order.getOrderNo());
+        String sourceOrderNo = order == null
+                ? (isStandaloneProductionPlan(plan) ? safeOrderNo(plan.getPlanNo()) : resolveOrderNoFromPlanNo(plan.getPlanNo()))
+                : safeOrderNo(order.getOrderNo());
         Batch batch = batchRepository.findBySourceOrderNoAndProductId(sourceOrderNo, product.getId())
                 .orElseGet(Batch::new);
         if (batch.getBatchNo() == null || batch.getBatchNo().isBlank()) {
@@ -811,11 +841,25 @@ public class OrderWorkflowService {
         }
     }
 
+    private void requireStandaloneProductionPlan(ProductionPlan plan) {
+        if (!isStandaloneProductionPlan(plan)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "该生产计划仍需按订单生产流程执行");
+        }
+    }
+
     private boolean isInventoryAlertPlan(ProductionPlan plan) {
         return plan != null && plan.getPlanNo() != null && plan.getPlanNo().startsWith("PLAN-ALERT-");
     }
 
-    private boolean hasPassedQualityBatchForAlertPlan(ProductionPlan plan) {
+    private boolean isManualProductionPlan(ProductionPlan plan) {
+        return plan != null && plan.getPlanNo() != null && plan.getPlanNo().startsWith("PLAN-MANUAL-");
+    }
+
+    private boolean isStandaloneProductionPlan(ProductionPlan plan) {
+        return isInventoryAlertPlan(plan) || isManualProductionPlan(plan);
+    }
+
+    private boolean hasPassedQualityBatchForStandalonePlan(ProductionPlan plan) {
         Product product = plan == null ? null : plan.getProduct();
         if (product == null || product.getId() == null) {
             return false;
@@ -830,6 +874,9 @@ public class OrderWorkflowService {
             return "";
         }
         if (planNo.startsWith("PLAN-ALERT-")) {
+            return planNo;
+        }
+        if (planNo.startsWith("PLAN-MANUAL-")) {
             return planNo;
         }
         String remaining = planNo.substring("PLAN-".length());

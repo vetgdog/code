@@ -282,7 +282,7 @@ public class ProductionMaterialRequestService {
         return requestRepository.findByProductionPlanIdOrderByCreatedAtDesc(planId).stream()
                 .filter(request -> STATUS_READY_FOR_PRODUCTION.equals(safe(request.getStatus())))
                 .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先为该补产计划提交原材料申请，并等待仓库备料完成后再进行生产"));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "请先为该生产计划提交原材料申请，并等待仓库备料完成后再进行生产"));
     }
 
     /**
@@ -406,7 +406,7 @@ public class ProductionMaterialRequestService {
         boolean hasOrder = orderId != null;
         boolean hasPlan = planId != null;
         if (hasOrder == hasPlan) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择一个生产来源：生产订单或补产计划");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "请选择一个生产来源：生产订单或生产计划");
         }
         if (hasOrder) {
             SalesOrder order = salesOrderRepository.findById(orderId)
@@ -421,9 +421,9 @@ public class ProductionMaterialRequestService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "生产计划不存在: " + planId));
         String status = safe(plan.getStatus()).toUpperCase(Locale.ROOT);
         if (List.of("DONE", "WAREHOUSED", "CANCELLED").contains(status)) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许为该补产计划发起原材料申请: " + plan.getStatus());
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "当前状态不允许为该生产计划发起原材料申请: " + plan.getStatus());
         }
-        return new ProductionMaterialSource(null, plan, plan.getProduct(), "该补产计划已有进行中的原材料申请，请勿重复提交");
+        return new ProductionMaterialSource(null, plan, plan.getProduct(), "该生产计划已有进行中的原材料申请，请勿重复提交");
     }
 
     /**
@@ -590,7 +590,7 @@ public class ProductionMaterialRequestService {
             return "订单 " + safe(request.getSalesOrder().getOrderNo());
         }
         if (request != null && request.getProductionPlan() != null) {
-            return "补产计划 " + safe(request.getProductionPlan().getPlanNo());
+            return "生产计划 " + safe(request.getProductionPlan().getPlanNo());
         }
         return "未知来源";
     }
